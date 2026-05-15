@@ -1,0 +1,138 @@
+use std::sync::Arc;
+
+use crate::blocking::connection::Connection;
+use crate::blocking::database::Database;
+use crate::blocking::primitives::{
+    Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock, Semaphore,
+    TokenBucketFlow, TreeLock,
+};
+use crate::error::Result;
+use crate::options::ClientOptions;
+use crate::protocol::command::{Command, PingCommand};
+use crate::protocol::constants::COMMAND_RESULT_SUCCED;
+use crate::protocol::id::Id16;
+use crate::protocol::result::CommandResult;
+
+#[derive(Clone, Debug)]
+pub struct Client {
+    inner: Arc<ClientInner>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ClientInner {
+    pub(crate) connection: Connection,
+}
+
+impl Client {
+    pub fn new<A: ToString>(address: A) -> Self {
+        Self::with_options(address, ClientOptions::default())
+    }
+
+    pub fn with_options<A: ToString>(address: A, options: ClientOptions) -> Self {
+        Self {
+            inner: Arc::new(ClientInner {
+                connection: Connection::new(address.to_string(), options),
+            }),
+        }
+    }
+
+    pub fn connect<A: ToString>(address: A) -> Result<Self> {
+        let client = Self::new(address);
+        client.open()?;
+        Ok(client)
+    }
+
+    pub fn open(&self) -> Result<()> {
+        self.inner.connection.open()
+    }
+
+    pub fn close(&self) {
+        self.inner.connection.close();
+    }
+
+    pub fn ping(&self) -> Result<bool> {
+        let result = self.send_command(Command::Ping(PingCommand::new(Id16::new())))?;
+        Ok(result.result_code() == COMMAND_RESULT_SUCCED)
+    }
+
+    pub fn select_database(&self, db_id: u8) -> Database {
+        Database::new(self.clone(), db_id)
+    }
+
+    pub fn lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> Lock {
+        self.select_database(0).lock(key, timeout, expired)
+    }
+
+    pub fn event<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16, default_set: bool) -> Event {
+        self.select_database(0).event(key, timeout, expired, default_set)
+    }
+
+    pub fn group_event<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        client_id: u64,
+        version_id: u64,
+        timeout: u16,
+        expired: u16,
+    ) -> GroupEvent {
+        self.select_database(0)
+            .group_event(key, client_id, version_id, timeout, expired)
+    }
+
+    pub fn semaphore<K: AsRef<[u8]>>(&self, key: K, count: u16, timeout: u16, expired: u16) -> Semaphore {
+        self.select_database(0).semaphore(key, count, timeout, expired)
+    }
+
+    pub fn reentrant_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> ReentrantLock {
+        self.select_database(0).reentrant_lock(key, timeout, expired)
+    }
+
+    pub fn read_write_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> ReadWriteLock {
+        self.select_database(0).read_write_lock(key, timeout, expired)
+    }
+
+    pub fn priority_lock<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        priority: u8,
+        timeout: u16,
+        expired: u16,
+    ) -> PriorityLock {
+        self.select_database(0)
+            .priority_lock(key, priority, timeout, expired)
+    }
+
+    pub fn max_concurrent_flow<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        max: u16,
+        timeout: u16,
+        expired: u16,
+    ) -> MaxConcurrentFlow {
+        self.select_database(0)
+            .max_concurrent_flow(key, max, timeout, expired)
+    }
+
+    pub fn token_bucket_flow<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        count: u16,
+        timeout: u16,
+        period: f64,
+    ) -> TokenBucketFlow {
+        self.select_database(0)
+            .token_bucket_flow(key, count, timeout, period)
+    }
+
+    pub fn tree_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> TreeLock {
+        self.select_database(0).tree_lock(key, timeout, expired)
+    }
+
+    pub fn pending_len(&self) -> usize {
+        self.inner.connection.pending_len()
+    }
+
+    pub(crate) fn send_command(&self, command: Command) -> Result<CommandResult> {
+        self.inner.connection.send_command(command)
+    }
+}
