@@ -4,7 +4,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use ruslock::blocking::Client;
-use ruslock::LockData;
+use ruslock::{LockData, SlockError};
 
 fn endpoint() -> String {
     let host = std::env::var("SLOCK_TEST_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -29,6 +29,10 @@ fn client_or_skip() -> Option<Client> {
         return None;
     }
     Some(Client::connect(endpoint()).unwrap())
+}
+
+fn unique_key(prefix: &str) -> String {
+    format!("{prefix}-{}", std::process::id())
 }
 
 #[test]
@@ -59,11 +63,23 @@ fn test_event_default_seted() {
     let Some(client) = client_or_skip() else {
         return;
     };
-    let mut event = client.event("event1", 5, 60, true);
-    let _ = event.is_set().unwrap();
+    let key = unique_key("event1");
+    let mut event = client.event(&key, 5, 60, true);
+    assert!(event.is_set().unwrap());
     event.clear().unwrap();
+    assert!(!event.is_set().unwrap());
     event.set().unwrap();
+    assert!(event.is_set().unwrap());
     event.wait(2).unwrap();
+
+    let mut event = client.event(&key, 5, 60, true);
+    assert!(event.is_set().unwrap());
+    event.clear().unwrap();
+    assert!(!event.is_set().unwrap());
+    event.set_with_data(Some(LockData::set("aaa"))).unwrap();
+    assert!(event.is_set().unwrap());
+    event.wait(2).unwrap();
+    assert_eq!(event.current_data().unwrap().as_string().unwrap(), "aaa");
 }
 
 #[test]
@@ -71,9 +87,28 @@ fn test_event_default_unseted() {
     let Some(client) = client_or_skip() else {
         return;
     };
-    let mut event = client.event("event2", 5, 60, false);
-    let _ = event.is_set().unwrap();
+    let key = unique_key("event2");
+    let mut event = client.event(&key, 5, 60, false);
+    assert!(!event.is_set().unwrap());
     event.set().unwrap();
+    assert!(event.is_set().unwrap());
+    event.clear().unwrap();
+    assert!(!event.is_set().unwrap());
+    event.set().unwrap();
+    assert!(event.is_set().unwrap());
+    event.wait(2).unwrap();
+    event.clear().unwrap();
+
+    let mut event = client.event(&key, 5, 60, false);
+    assert!(!event.is_set().unwrap());
+    event.set_with_data(Some(LockData::set("aaa"))).unwrap();
+    assert!(event.is_set().unwrap());
+    event.clear().unwrap();
+    assert!(!event.is_set().unwrap());
+    event.set_with_data(Some(LockData::set("bbb"))).unwrap();
+    assert!(event.is_set().unwrap());
+    event.wait(2).unwrap();
+    assert_eq!(event.current_data().unwrap().as_string().unwrap(), "bbb");
     event.clear().unwrap();
 }
 
@@ -82,13 +117,28 @@ fn test_group_event() {
     let Some(client) = client_or_skip() else {
         return;
     };
-    let mut group_event = client.group_event("groupEvent1", 1, 1, 5, 60);
-    let mut waiter = client.group_event("groupEvent1", 2, 0, 5, 60);
-    let _ = group_event.is_set().unwrap();
+    let key = unique_key("groupEvent1");
+    let mut group_event = client.group_event(&key, 1, 1, 5, 60);
+    let mut waiter = client.group_event(&key, 2, 0, 5, 60);
+    assert!(group_event.is_set().unwrap());
     group_event.clear().unwrap();
+    assert!(!group_event.is_set().unwrap());
     group_event.wakeup(Some(LockData::set("aaa"))).unwrap();
     assert_eq!(group_event.version_id(), 2);
+    assert!(!group_event.is_set().unwrap());
     waiter.wait(2).unwrap();
+    assert_eq!(waiter.version_id(), 2);
+    assert_eq!(waiter.current_data().unwrap().as_string().unwrap(), "aaa");
+    group_event.wakeup(Some(LockData::set("bbb"))).unwrap();
+    assert_eq!(group_event.version_id(), 3);
+    assert!(!group_event.is_set().unwrap());
+    waiter.wait(2).unwrap();
+    assert_eq!(waiter.version_id(), 3);
+    assert_eq!(waiter.current_data().unwrap().as_string().unwrap(), "bbb");
+    group_event.set().unwrap();
+    assert!(group_event.is_set().unwrap());
+    group_event.wait(2).unwrap();
+    assert_eq!(group_event.version_id(), 3);
 }
 
 #[test]
@@ -96,8 +146,26 @@ fn test_read_write_lock() {
     let Some(client) = client_or_skip() else {
         return;
     };
-    let mut read_lock = client.read_write_lock("readWriteLock1", 0, 60);
+    let key = unique_key("readWriteLock1");
+    let mut read_lock = client.read_write_lock(&key, 0, 60);
+    let mut write_lock = client.read_write_lock(&key, 0, 60);
     read_lock.acquire_read().unwrap();
+    read_lock.acquire_read().unwrap();
+    read_lock.release_read().unwrap();
+    read_lock.release_read().unwrap();
+
+    read_lock.acquire_read().unwrap();
+    let err = write_lock.acquire_write().unwrap_err();
+    assert!(matches!(err, SlockError::LockTimeout(_)));
+    read_lock.release_read().unwrap();
+
+    write_lock.acquire_write().unwrap();
+    let err = read_lock.acquire_read().unwrap_err();
+    assert!(matches!(err, SlockError::LockTimeout(_)));
+    write_lock.release_write().unwrap();
+    read_lock.acquire_read().unwrap();
+    read_lock.acquire_read().unwrap();
+    read_lock.release_read().unwrap();
     read_lock.release_read().unwrap();
 }
 

@@ -27,19 +27,39 @@ impl LockData {
     }
 
     pub fn set<V: Into<Vec<u8>>>(value: V) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, 0, value.into())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_SET,
+            0,
+            value.into(),
+        )
     }
 
     pub fn set_with_flags<V: Into<Vec<u8>>>(value: V, flags: u8) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, flags, value.into())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_SET,
+            flags,
+            value.into(),
+        )
     }
 
     pub fn unset() -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_UNSET, 0, Vec::new())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_UNSET,
+            0,
+            Vec::new(),
+        )
     }
 
     pub fn unset_with_flags(flags: u8) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_UNSET, flags, Vec::new())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_UNSET,
+            flags,
+            Vec::new(),
+        )
     }
 
     pub fn incr(value: i64) -> Self {
@@ -61,11 +81,21 @@ impl LockData {
     }
 
     pub fn append<V: Into<Vec<u8>>>(value: V) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_APPEND, 0, value.into())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_APPEND,
+            0,
+            value.into(),
+        )
     }
 
     pub fn append_with_flags<V: Into<Vec<u8>>>(value: V, flags: u8) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_APPEND, flags, value.into())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_APPEND,
+            flags,
+            value.into(),
+        )
     }
 
     pub fn shift(length: u32) -> Self {
@@ -92,7 +122,12 @@ impl LockData {
 
     pub fn execute_with_stage(stage: u8, command: &LockCommand, flags: u8) -> Result<Self> {
         let encoded = crate::protocol::command::Command::Lock(command.clone()).encode()?;
-        Ok(Self::new(stage, LOCK_DATA_COMMAND_TYPE_EXECUTE, flags, encoded.header.to_vec()))
+        Ok(Self::new(
+            stage,
+            LOCK_DATA_COMMAND_TYPE_EXECUTE,
+            flags,
+            encoded.header.to_vec(),
+        ))
     }
 
     pub fn pipeline(items: Vec<LockData>) -> Self {
@@ -114,11 +149,21 @@ impl LockData {
     }
 
     pub fn push<V: Into<Vec<u8>>>(value: V) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_PUSH, 0, value.into())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_PUSH,
+            0,
+            value.into(),
+        )
     }
 
     pub fn push_with_flags<V: Into<Vec<u8>>>(value: V, flags: u8) -> Self {
-        Self::new(LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_PUSH, flags, value.into())
+        Self::new(
+            LOCK_DATA_STAGE_CURRENT,
+            LOCK_DATA_COMMAND_TYPE_PUSH,
+            flags,
+            value.into(),
+        )
     }
 
     pub fn pop(count: u32) -> Self {

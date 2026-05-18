@@ -20,6 +20,59 @@ D:\workspace\github\jaslock\src\test\java\io\github\snower\jaslock\ClientTest.ja
 
 The implementation must preserve the protocol details documented in `docs/Architecture.md` and `design.md`: 64-byte command frames, little-endian numeric fields, LockData framing, requestId response matching, key normalization, timeout/expired flags, and replset retry behavior.
 
+## Execution Status
+
+Last updated: 2026-05-18.
+
+Completed:
+
+- [x] Task 0 crate scaffold is implemented and `cargo check --all-features` passes.
+- [x] Task 1 shared protocol foundation is implemented: `SlockError`, `ClientOptions`, `PackedTime`, `Key16`, `Id16`, and Java `ICommand` constants.
+- [x] Task 2 command encode/decode is implemented for Init, Ping, Lock, Unlock, response headers, and Lock extra-data framing.
+- [x] Task 3 LockData core is implemented for set, unset, incr, append, shift, execute, pipeline, push, pop, and LockResultData accessors.
+- [x] Task 3 LockData tests now explicitly cover all command variants and Java property-offset parsing.
+- [x] Task 4 blocking single client is implemented with TCP connect/init, reader thread, pending request matching, timeout cleanup, close wakeup, ping, database selection, and root lock factory.
+- [x] Task 5 blocking Lock API is implemented with acquire/release/show/update/release_head/release_head_to_lock_wait/current_data and lock result error mapping.
+- [x] Task 6 async single client is implemented with tokio TCP connect/init, reader task, pending request matching, timeout cleanup, close wakeup, ping, database selection, and root lock factory.
+- [x] Task 6 async cancellation cleanup is implemented and covered by tokio mock transport tests.
+- [x] Task 7 async explicit `LockGuard` API is implemented; release is explicit and awaited.
+- [x] Task 7 async lock error mapping tests now mirror the blocking mappings for locked, unlocked, unown, and timeout results.
+- [x] Task 8 database factories are implemented for all current blocking and async primitives, including full `u8` db ids and default flag merge.
+- [x] Task 9 blocking primitive API surface is implemented for Event, GroupEvent, Semaphore, ReentrantLock, ReadWriteLock, PriorityLock, MaxConcurrentFlow, TokenBucketFlow, and TreeLock.
+- [x] Task 10 async primitive API surface is implemented for the same primitive set.
+- [x] Task 9 and Task 10 now have mock command-construction coverage for every primitive in both blocking and async APIs.
+- [x] TreeLock now exposes Java-parity `wait` and `lock_key` helpers for blocking and async APIs.
+- [x] Task 11 replset now maintains per-node clients, falls back to the first live node, prefers nodes whose Init response marks `INIT_TYPE_FLAG_IS_LEADER`, and has blocking/async mock coverage for those paths.
+- [x] Task 12 Java parity test files exist and run against local `slock` when available; benchmark parity is ignored by default unless explicitly requested.
+- [x] Task 12 Java parity tests now include stronger assertion chains for Event, GroupEvent, ReadWriteLock, Replset lock data, LockData set/incr/append/shift/push/pop, TreeLock wait/child, MaxConcurrentFlow, and TokenBucketFlow.
+- [x] Task 13 README/rustdoc quickstarts, feature flags, LockData examples, and local slock test notes are documented.
+
+Partially completed and still in progress:
+
+- [ ] Task 9 and Task 10 primitive state-transition unit coverage is still thinner than the Java parity surface.
+- [ ] Task 11 replset still needs shared pending queue behavior, pending wakeup when a leader/live node appears after all nodes are down, write-failure retry, and lock `STATE_ERROR` retry.
+- [ ] Task 12 Java parity still is not a strict line-by-line port for Java TreeLeafLock internals, LockData execute/pipeline live side effects, the 1000-callback PriorityLock ordering stress, and full benchmark scale.
+- [ ] Plan commit steps are intentionally not completed because no commit was requested yet.
+
+Latest completed verification:
+
+- [x] `cargo check --all-features`
+- [x] `cargo fmt --check`
+- [x] `cargo clippy --all-features --all-targets -- -D warnings`
+- [x] `cargo test --lib --all-features`
+- [x] `cargo test --features blocking --no-default-features`
+- [x] `cargo test --features aio --no-default-features`
+- [x] `cargo test --all-features`
+- [x] `cargo test --doc --all-features`
+- [x] `cargo test --test protocol_foundation --all-features`
+- [x] `cargo test --test aio_mock --features aio --no-default-features`
+- [x] `cargo test --test primitive_commands --all-features`
+- [x] `cargo test --test primitive_commands --features blocking --no-default-features`
+- [x] `cargo test --test primitive_commands --features aio --no-default-features`
+- [x] `cargo test --test replset_mock --all-features`
+- [x] `SLOCK_TEST_HOST=127.0.0.1 SLOCK_TEST_PORT=5658 cargo test --all-features --test java_parity_blocking --test java_parity_async --test java_parity_replset --test java_parity_lock_data --test java_parity_flow_tree`
+- [x] `cargo test --all-features --test java_parity_benchmark -- --ignored`
+
 ## Public API Targets
 
 - `ruslock::blocking::Client`
@@ -112,13 +165,13 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - Modify: `src/lib.rs`
 - Test: data module tests
 
-- [ ] Implement `LockData` constructors for set, unset, incr, append, shift, execute, pipeline, push, and pop.
-- [ ] Encode LockData as length + stage/type + flags + value.
-- [ ] Encode pipeline by concatenating nested LockData bytes and recalculating total length.
-- [ ] Implement `LockResultData` accessors for bytes, string, i64, list, string list, map, and string map.
-- [ ] Preserve Java property offset behavior when `CONTAINS_PROPERTY` is present.
-- [ ] Add tests for every LockData variant and every LockResultData accessor.
-- [ ] Run `cargo test --lib --all-features`.
+- [x] Implement `LockData` constructors for set, unset, incr, append, shift, execute, pipeline, push, and pop.
+- [x] Encode LockData as length + stage/type + flags + value.
+- [x] Encode pipeline by concatenating nested LockData bytes and recalculating total length.
+- [x] Implement `LockResultData` accessors for bytes, string, i64, list, string list, map, and string map.
+- [x] Preserve Java property offset behavior when `CONTAINS_PROPERTY` is present.
+- [x] Add tests for every LockData variant and every LockResultData accessor.
+- [x] Run `cargo test --lib --all-features`.
 - [ ] Commit LockData support.
 
 ## Task 4: Blocking Single Client
@@ -183,7 +236,7 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - [ ] Implement tokio `ConnectionActor` that owns connection state, writer, pending map, reader task, reconnect timer, and close signal.
 - [ ] Actor must handle command ops, decoded frames, timeout cleanup, reader failure, reconnect, and close.
 - [ ] `Client::close().await` must stop reconnect and wake all pending operations.
-- [ ] Add tokio mock-server tests for Init/Ping, requestId response matching, timeout cleanup, cancellation cleanup, and close cleanup.
+- [x] Add tokio mock-server tests for Init/Ping, requestId response matching, timeout cleanup, cancellation cleanup, and close cleanup.
 - [ ] Run `cargo test --features aio --no-default-features`.
 - [ ] Commit async transport.
 
@@ -195,9 +248,9 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - Test: async lock tests
 
 - [ ] Implement `aio::Lock` with the same method names as blocking, using `async fn` and `.await`.
-- [ ] Add explicit async guard API whose release is explicit and awaited.
-- [ ] Do not rely on async Drop for lock release.
-- [ ] Mirror Task 5 tests for async success and error mapping.
+- [x] Add explicit async guard API whose release is explicit and awaited.
+- [x] Do not rely on async Drop for lock release.
+- [x] Mirror Task 5 tests for async success and error mapping.
 - [ ] Run `cargo test --features aio --no-default-features`.
 - [ ] Commit async lock API.
 
@@ -237,7 +290,8 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - [ ] Implement blocking MaxConcurrentFlow.
 - [ ] Implement blocking TokenBucketFlow.
 - [ ] Implement blocking TreeLock.
-- [ ] Add command construction and state transition tests for each primitive.
+- [x] Add command construction tests for each blocking primitive.
+- [ ] Add state transition tests for each blocking primitive.
 - [ ] Add local slock smoke tests for each primitive, skipped when service is unavailable.
 - [ ] Run `cargo test --features blocking --no-default-features`.
 - [ ] Commit blocking primitives.
@@ -258,7 +312,8 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - [ ] Implement async TokenBucketFlow.
 - [ ] Implement async TreeLock.
 - [ ] Keep names and behavior aligned with blocking APIs.
-- [ ] Add async smoke tests for every primitive.
+- [x] Add async command construction tests for every primitive.
+- [x] Add async smoke tests for every primitive.
 - [ ] Run `cargo test --features aio --no-default-features`.
 - [ ] Commit async primitives.
 
@@ -271,14 +326,16 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - Modify: `src/aio/mod.rs`
 - Test: replset tests
 
-- [ ] Implement node parsing from comma strings and string slices.
-- [ ] Track clients, live clients, leader, shared requests, pending commands, and retry type.
-- [ ] Prefer leader, fallback to first live node.
+- [x] Implement node parsing from comma strings and string slices.
+- [x] Track per-node clients and the active leader/live node index.
+- [ ] Track shared requests, pending commands, and retry type.
+- [x] Prefer leader, fallback to first live node.
 - [ ] Retry on write failure and lock `STATE_ERROR`.
 - [ ] Wake pending commands when leader/live node appears.
-- [ ] Implement blocking and async `ReplsetClient` factory methods matching single client APIs.
-- [ ] Add tests for single-node replset, leader selection, pending wakeup, and state-error retry.
-- [ ] Run `cargo test --all-features`.
+- [x] Implement blocking and async `ReplsetClient` factory methods matching single client APIs.
+- [x] Add tests for node parsing, single-node replset behavior, live-node fallback, and leader selection.
+- [ ] Add tests for pending wakeup and state-error retry.
+- [x] Run `cargo test --all-features`.
 - [ ] Commit replset support.
 
 ## Task 12: Java ClientTest Parity Suite
@@ -291,36 +348,37 @@ The implementation must preserve the protocol details documented in `docs/Archit
 - Create: `tests/java_parity_flow_tree.rs`
 - Create: `tests/java_parity_benchmark.rs`
 
-- [ ] Add helpers for test endpoint defaults:
+- [x] Add helpers for test endpoint defaults:
   - `SLOCK_TEST_HOST=127.0.0.1`
   - `SLOCK_TEST_PORT=5658`
   - optional `SLOCK_REPLSET_NODES`
-- [ ] Migrate `testClientLock`.
-- [ ] Migrate `testReplsetClientLock`.
-- [ ] Migrate `testClientAsyncLock`.
-- [ ] Migrate `testReplsetClientAsyncLock`.
-- [ ] Migrate `testEventDefaultSeted`.
-- [ ] Migrate `testEventDefaultUnseted`.
-- [ ] Migrate `testEventAsyncDefaultSeted`.
-- [ ] Migrate `testEventAsyncDefaultUnseted`.
-- [ ] Migrate `testGroupEvent`.
-- [ ] Migrate `testGroupEventAsync`.
-- [ ] Migrate `testReadWriteLock`.
-- [ ] Migrate `testReadWriteLockAsync`.
-- [ ] Migrate `testReentrantLock`.
-- [ ] Migrate `testReentrantLockAsync`.
-- [ ] Migrate `testSemaphore`.
-- [ ] Migrate `testSemaphoreAsync`.
-- [ ] Migrate `testTreeLock` and its recursive child helper.
-- [ ] Migrate `testMaxConcurrentFlow`.
-- [ ] Migrate `testMaxConcurrentFlowAsync`.
-- [ ] Migrate `testTokenBucketFlow`.
-- [ ] Migrate `testTokenBucketFlowAsync`.
-- [ ] Migrate `testPriorityLock`.
-- [ ] Migrate `testLockData`.
-- [ ] Migrate `testBenchmark` as ignored by default.
-- [ ] Preserve Java assertion values exactly: `"aaa"`, `"bbb"`, `"ccc"`, version `2/3`, semaphore count `10`, priority order, LockData list sizes and content.
-- [ ] Run parity tests against local slock service.
+- [x] Migrate `testClientLock`.
+- [x] Migrate `testReplsetClientLock`.
+- [x] Migrate `testClientAsyncLock`.
+- [x] Migrate `testReplsetClientAsyncLock`.
+- [x] Migrate `testEventDefaultSeted`.
+- [x] Migrate `testEventDefaultUnseted`.
+- [x] Migrate `testEventAsyncDefaultSeted`.
+- [x] Migrate `testEventAsyncDefaultUnseted`.
+- [x] Migrate `testGroupEvent`.
+- [x] Migrate `testGroupEventAsync`.
+- [x] Migrate `testReadWriteLock`.
+- [x] Migrate `testReadWriteLockAsync`.
+- [x] Migrate `testReentrantLock`.
+- [x] Migrate `testReentrantLockAsync`.
+- [x] Migrate `testSemaphore`.
+- [x] Migrate `testSemaphoreAsync`.
+- [x] Migrate `testTreeLock` root wait/child coverage.
+- [ ] Migrate `testTreeLock` full recursive leaf helper behavior.
+- [x] Migrate `testMaxConcurrentFlow`.
+- [x] Migrate `testMaxConcurrentFlowAsync`.
+- [x] Migrate `testTokenBucketFlow`.
+- [x] Migrate `testTokenBucketFlowAsync`.
+- [x] Migrate `testPriorityLock`.
+- [x] Migrate `testLockData`.
+- [x] Migrate `testBenchmark` as ignored by default.
+- [x] Preserve Java assertion values exactly where current public API supports them: `"aaa"`, `"bbb"`, `"ccc"`, version `2/3`, semaphore count `10`, priority value, LockData list sizes and content.
+- [x] Run parity tests against local slock service.
 - [ ] Commit parity suite.
 
 ## Task 13: Docs and Public API Cleanup
@@ -341,14 +399,14 @@ The implementation must preserve the protocol details documented in `docs/Archit
 
 ## Verification Commands
 
-- [ ] `cargo fmt --check`
-- [ ] `cargo clippy --all-features --all-targets -- -D warnings`
-- [ ] `cargo test --lib --all-features`
-- [ ] `cargo test --features blocking --no-default-features`
-- [ ] `cargo test --features aio --no-default-features`
-- [ ] `cargo test --all-features`
-- [ ] `SLOCK_TEST_HOST=127.0.0.1 SLOCK_TEST_PORT=5658 cargo test --all-features --test java_parity_blocking --test java_parity_async --test java_parity_replset --test java_parity_lock_data --test java_parity_flow_tree`
-- [ ] `cargo test --all-features --test java_parity_benchmark -- --ignored`
+- [x] `cargo fmt --check`
+- [x] `cargo clippy --all-features --all-targets -- -D warnings`
+- [x] `cargo test --lib --all-features`
+- [x] `cargo test --features blocking --no-default-features`
+- [x] `cargo test --features aio --no-default-features`
+- [x] `cargo test --all-features`
+- [x] `SLOCK_TEST_HOST=127.0.0.1 SLOCK_TEST_PORT=5658 cargo test --all-features --test java_parity_blocking --test java_parity_async --test java_parity_replset --test java_parity_lock_data --test java_parity_flow_tree`
+- [x] `cargo test --all-features --test java_parity_benchmark -- --ignored`
 
 ## Plan Review
 

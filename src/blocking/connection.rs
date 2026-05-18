@@ -23,6 +23,7 @@ pub(crate) struct Connection {
     address: String,
     options: ClientOptions,
     client_id: Mutex<Option<Id16>>,
+    init_type: Mutex<u8>,
     writer: Arc<Mutex<Option<TcpStream>>>,
     pending: Arc<Mutex<HashMap<Id16, PendingSender>>>,
     closed: Arc<AtomicBool>,
@@ -34,6 +35,7 @@ impl Connection {
             address,
             options,
             client_id: Mutex::new(None),
+            init_type: Mutex::new(0),
             writer: Arc::new(Mutex::new(None)),
             pending: Arc::new(Mutex::new(HashMap::new())),
             closed: Arc::new(AtomicBool::new(false)),
@@ -45,11 +47,9 @@ impl Connection {
             return Ok(());
         }
         self.closed.store(false, Ordering::SeqCst);
-        let socket_addr = self
-            .address
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| SlockError::Protocol(format!("address {} did not resolve", self.address)))?;
+        let socket_addr = self.address.to_socket_addrs()?.next().ok_or_else(|| {
+            SlockError::Protocol(format!("address {} did not resolve", self.address))
+        })?;
         let mut stream = TcpStream::connect_timeout(&socket_addr, self.options.connect_timeout)?;
         stream.set_nodelay(self.options.tcp_nodelay)?;
         if self.options.tcp_keepalive {
@@ -75,6 +75,10 @@ impl Connection {
                 result: response.result_code(),
             });
         }
+        let CommandResult::Init(result) = response else {
+            return Err(SlockError::Protocol("expected init result".to_string()));
+        };
+        *self.init_type.lock().expect("init type mutex poisoned") = result.init_type;
 
         let reader = stream.try_clone()?;
         *self.writer.lock().expect("writer mutex poisoned") = Some(stream);
@@ -92,6 +96,10 @@ impl Connection {
 
     pub(crate) fn pending_len(&self) -> usize {
         self.pending.lock().expect("pending mutex poisoned").len()
+    }
+
+    pub(crate) fn init_type(&self) -> u8 {
+        *self.init_type.lock().expect("init type mutex poisoned")
     }
 
     pub(crate) fn send_command(&self, command: Command) -> Result<CommandResult> {
@@ -156,7 +164,10 @@ impl Connection {
                     if !closed.load(Ordering::SeqCst) {
                         let mut pending = pending.lock().expect("pending mutex poisoned");
                         for (_, tx) in pending.drain() {
-                            let _ = tx.send(Err(SlockError::Io(std::io::Error::new(err.kind(), err.to_string()))));
+                            let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
+                                err.kind(),
+                                err.to_string(),
+                            ))));
                         }
                         let _ = writer.lock().expect("writer mutex poisoned").take();
                     }
@@ -179,13 +190,21 @@ impl Connection {
                 };
 
                 let decoded = decode_response(&header, data);
-                let request_id = decoded.as_ref().ok().map(CommandResult::request_id).or_else(|| {
-                    let mut bytes = [0u8; 16];
-                    bytes.copy_from_slice(&header[3..19]);
-                    Some(Id16::from_bytes(bytes))
-                });
+                let request_id = decoded
+                    .as_ref()
+                    .ok()
+                    .map(CommandResult::request_id)
+                    .or_else(|| {
+                        let mut bytes = [0u8; 16];
+                        bytes.copy_from_slice(&header[3..19]);
+                        Some(Id16::from_bytes(bytes))
+                    });
                 if let Some(request_id) = request_id {
-                    if let Some(tx) = pending.lock().expect("pending mutex poisoned").remove(&request_id) {
+                    if let Some(tx) = pending
+                        .lock()
+                        .expect("pending mutex poisoned")
+                        .remove(&request_id)
+                    {
                         let _ = tx.send(decoded);
                     }
                 }

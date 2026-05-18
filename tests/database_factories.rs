@@ -1,4 +1,6 @@
-use ruslock::protocol::constants::{EXPRIED_FLAG_MILLISECOND_TIME, TIMEOUT_FLAG_RCOUNT_IS_PRIORITY};
+use ruslock::protocol::constants::{
+    EXPRIED_FLAG_MILLISECOND_TIME, TIMEOUT_FLAG_RCOUNT_IS_PRIORITY,
+};
 use ruslock::ClientOptions;
 
 #[cfg(feature = "blocking")]

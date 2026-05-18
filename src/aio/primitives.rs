@@ -21,7 +21,12 @@ pub struct Lock {
 }
 
 impl Lock {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, timeout: u16, expired: u16) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> Self {
         let timeout = database.timeout(timeout);
         let expired = database.expired(expired);
         Self {
@@ -71,17 +76,28 @@ impl Lock {
         self.acquire_with_flags(0, None).await
     }
 
+    pub async fn acquire_guard(&mut self) -> Result<LockGuard> {
+        self.acquire().await?;
+        Ok(LockGuard { lock: self.clone() })
+    }
+
     pub async fn acquire_with_data(&mut self, data: LockData) -> Result<LockCommandResult> {
         self.acquire_with_flags(0, Some(data)).await
     }
 
-    pub async fn acquire_with_flags(&mut self, flag: u8, data: Option<LockData>) -> Result<LockCommandResult> {
+    pub async fn acquire_with_flags(
+        &mut self,
+        flag: u8,
+        data: Option<LockData>,
+    ) -> Result<LockCommandResult> {
         let flag = if data.is_some() {
             flag | LOCK_FLAG_CONTAINS_DATA
         } else {
             flag
         };
-        let result = self.send_lock(COMMAND_TYPE_LOCK, flag, self.lock_id, data).await?;
+        let result = self
+            .send_lock(COMMAND_TYPE_LOCK, flag, self.lock_id, data)
+            .await?;
         self.apply_result(result)
     }
 
@@ -93,18 +109,27 @@ impl Lock {
         self.release_with_flags(0, Some(data)).await
     }
 
-    pub async fn release_with_flags(&mut self, flag: u8, data: Option<LockData>) -> Result<LockCommandResult> {
+    pub async fn release_with_flags(
+        &mut self,
+        flag: u8,
+        data: Option<LockData>,
+    ) -> Result<LockCommandResult> {
         let flag = if data.is_some() {
             flag | UNLOCK_FLAG_CONTAINS_DATA
         } else {
             flag
         };
-        let result = self.send_lock(COMMAND_TYPE_UNLOCK, flag, self.lock_id, data).await?;
+        let result = self
+            .send_lock(COMMAND_TYPE_UNLOCK, flag, self.lock_id, data)
+            .await?;
         self.apply_result(result)
     }
 
     pub async fn show(&mut self) -> Result<Option<LockCommandResult>> {
-        match self.acquire_with_flags(LOCK_FLAG_SHOW_WHEN_LOCKED, None).await {
+        match self
+            .acquire_with_flags(LOCK_FLAG_SHOW_WHEN_LOCKED, None)
+            .await
+        {
             Ok(result) => Ok(Some(result)),
             Err(SlockError::LockNotOwn(result)) => Ok(Some(*result)),
             Err(err) => Err(err),
@@ -112,7 +137,10 @@ impl Lock {
     }
 
     pub async fn update(&mut self, data: Option<LockData>) -> Result<()> {
-        match self.acquire_with_flags(LOCK_FLAG_UPDATE_WHEN_LOCKED, data).await {
+        match self
+            .acquire_with_flags(LOCK_FLAG_UPDATE_WHEN_LOCKED, data)
+            .await
+        {
             Ok(_) | Err(SlockError::LockLocked(_)) => Ok(()),
             Err(err) => Err(err),
         }
@@ -122,7 +150,12 @@ impl Lock {
         let result = self
             .send_lock(
                 COMMAND_TYPE_UNLOCK,
-                UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED | if data.is_some() { UNLOCK_FLAG_CONTAINS_DATA } else { 0 },
+                UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED
+                    | if data.is_some() {
+                        UNLOCK_FLAG_CONTAINS_DATA
+                    } else {
+                        0
+                    },
                 Id16::zero(),
                 data,
             )
@@ -131,7 +164,10 @@ impl Lock {
         Ok(())
     }
 
-    pub async fn release_head_to_lock_wait(&mut self, data: Option<LockData>) -> Result<LockCommandResult> {
+    pub async fn release_head_to_lock_wait(
+        &mut self,
+        data: Option<LockData>,
+    ) -> Result<LockCommandResult> {
         self.release_with_flags(
             UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED | UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT,
             data,
@@ -183,7 +219,12 @@ impl Lock {
             self.r_count,
             data,
         );
-        match self.database.client().send_command(Command::Lock(command)).await? {
+        match self
+            .database
+            .client()
+            .send_command(Command::Lock(command))
+            .await?
+        {
             CommandResult::Lock(result) => Ok(result),
             _ => Err(SlockError::Protocol("expected lock result".to_string())),
         }
@@ -199,8 +240,21 @@ impl Lock {
             COMMAND_RESULT_TIMEOUT => Err(SlockError::LockTimeout(Box::new(result))),
             COMMAND_RESULT_EXPRIED => Err(SlockError::LockExpired(Box::new(result))),
             COMMAND_RESULT_STATE_ERROR => Err(SlockError::StateError(Box::new(result))),
-            result_code => Err(SlockError::Server { result: result_code }),
+            result_code => Err(SlockError::Server {
+                result: result_code,
+            }),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct LockGuard {
+    lock: Lock,
+}
+
+impl LockGuard {
+    pub async fn release(mut self) -> Result<LockCommandResult> {
+        self.lock.release().await
     }
 }
 
@@ -226,9 +280,19 @@ impl Event {
 
     pub async fn is_set(&mut self) -> Result<bool> {
         let mut check_lock = if self.default_set {
-            Lock::new(self.lock.database.clone(), self.lock.lock_key.as_bytes(), 0, 0)
+            Lock::new(
+                self.lock.database.clone(),
+                self.lock.lock_key.as_bytes(),
+                0,
+                0,
+            )
         } else {
-            let mut lock = Lock::new(self.lock.database.clone(), self.lock.lock_key.as_bytes(), 0, 0);
+            let mut lock = Lock::new(
+                self.lock.database.clone(),
+                self.lock.lock_key.as_bytes(),
+                0,
+                0,
+            );
             lock.timeout = PackedTime::with_flags(0, TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK);
             lock.set_count(1);
             lock
@@ -271,15 +335,26 @@ impl Event {
     }
 
     pub async fn wait(&mut self, timeout: u16) -> Result<()> {
-        let mut wait_lock = Lock::new(self.lock.database.clone(), self.lock.lock_key.as_bytes(), timeout, 0);
+        let mut wait_lock = Lock::new(
+            self.lock.database.clone(),
+            self.lock.lock_key.as_bytes(),
+            timeout,
+            0,
+        );
         if !self.default_set {
             wait_lock.timeout = PackedTime::with_flags(timeout, TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK);
             wait_lock.set_count(1);
         }
-        let result = wait_lock.acquire().await.map(|_| ()).map_err(|err| match err {
-            SlockError::LockTimeout(_) | SlockError::CommandTimeout => SlockError::EventWaitTimeout,
-            err => err,
-        });
+        let result = wait_lock
+            .acquire()
+            .await
+            .map(|_| ())
+            .map_err(|err| match err {
+                SlockError::LockTimeout(_) | SlockError::CommandTimeout => {
+                    SlockError::EventWaitTimeout
+                }
+                err => err,
+            });
         self.lock.current_data = wait_lock.current_data.clone();
         result
     }
@@ -307,7 +382,12 @@ pub struct ReentrantLock {
 }
 
 impl ReentrantLock {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, timeout: u16, expired: u16) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> Self {
         let mut lock = Lock::new(database, key, timeout, expired);
         lock.set_r_count(0xff);
         Self { lock }
@@ -332,7 +412,13 @@ pub struct Semaphore {
 }
 
 impl Semaphore {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, count: u16, timeout: u16, expired: u16) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        count: u16,
+        timeout: u16,
+        expired: u16,
+    ) -> Self {
         Self {
             database,
             key: key.as_ref().to_vec(),
@@ -373,7 +459,12 @@ pub struct ReadWriteLock {
 }
 
 impl ReadWriteLock {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, timeout: u16, expired: u16) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> Self {
         let key_vec = key.as_ref().to_vec();
         let mut write_lock = Lock::new(database.clone(), &key_vec, timeout, expired);
         write_lock.set_count(0);
@@ -451,7 +542,13 @@ pub struct MaxConcurrentFlow {
 }
 
 impl MaxConcurrentFlow {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, max: u16, timeout: u16, expired: u16) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        max: u16,
+        timeout: u16,
+        expired: u16,
+    ) -> Self {
         let mut lock = Lock::new(database, key, timeout, expired);
         lock.set_count(max.saturating_sub(1));
         Self { lock }
@@ -472,7 +569,13 @@ pub struct TokenBucketFlow {
 }
 
 impl TokenBucketFlow {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, count: u16, timeout: u16, period: f64) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        count: u16,
+        timeout: u16,
+        period: f64,
+    ) -> Self {
         let expired = if period < 3.0 {
             ((period * 1000.0).ceil() as u16).max(1)
         } else {
@@ -594,7 +697,11 @@ impl GroupEvent {
             .merge_flags(TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED);
         let result = event_lock.release_head_to_lock_wait(data).await?;
         if result.lock_id != Id16::zero() {
-            self.version_id = u64::from_le_bytes(result.lock_id.as_bytes()[0..8].try_into().expect("slice is 8 bytes"));
+            self.version_id = u64::from_le_bytes(
+                result.lock_id.as_bytes()[0..8]
+                    .try_into()
+                    .expect("slice is 8 bytes"),
+            );
         }
         self.lock.current_data = event_lock.current_data.clone();
         Ok(())
@@ -618,7 +725,11 @@ impl GroupEvent {
             err => err,
         })?;
         if result.lock_id != encode_group_event_lock_id(self.client_id, self.version_id) {
-            self.version_id = u64::from_le_bytes(result.lock_id.as_bytes()[0..8].try_into().expect("slice is 8 bytes"));
+            self.version_id = u64::from_le_bytes(
+                result.lock_id.as_bytes()[0..8]
+                    .try_into()
+                    .expect("slice is 8 bytes"),
+            );
         }
         self.lock.current_data = wait_lock.current_data.clone();
         Ok(())
@@ -636,7 +747,12 @@ pub struct TreeLock {
 }
 
 impl TreeLock {
-    pub(crate) fn new<K: AsRef<[u8]>>(database: Database, key: K, timeout: u16, expired: u16) -> Self {
+    pub(crate) fn new<K: AsRef<[u8]>>(
+        database: Database,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> Self {
         let mut lock = Lock::new(database, key, timeout, expired);
         lock.set_count(u16::MAX);
         lock.set_r_count(1);
@@ -648,17 +764,43 @@ impl TreeLock {
     }
 
     pub fn new_child<K: AsRef<[u8]>>(&self, key: K) -> Self {
-        let mut child = Self::new(self.lock.database.clone(), key, self.lock.timeout.value(), self.lock.expired.value());
+        let mut child = Self::new(
+            self.lock.database.clone(),
+            key,
+            self.lock.timeout.value(),
+            self.lock.expired.value(),
+        );
         child.parent_key = Some(self.lock.lock_key);
         child
     }
 
     pub async fn acquire(&mut self) -> Result<LockCommandResult> {
-        self.lock.acquire_with_flags(LOCK_FLAG_LOCK_TREE_LOCK, None).await
+        self.lock
+            .acquire_with_flags(LOCK_FLAG_LOCK_TREE_LOCK, None)
+            .await
     }
 
     pub async fn release(&mut self) -> Result<LockCommandResult> {
-        self.lock.release_with_flags(UNLOCK_FLAG_UNLOCK_TREE_LOCK, None).await
+        self.lock
+            .release_with_flags(UNLOCK_FLAG_UNLOCK_TREE_LOCK, None)
+            .await
+    }
+
+    pub async fn wait(&mut self, timeout: u16) -> Result<LockCommandResult> {
+        let mut check_lock = Lock::with_lock_id(
+            self.lock.database.clone(),
+            self.lock.lock_key.as_bytes(),
+            Id16::new(),
+            timeout,
+            0,
+            0,
+            0,
+        );
+        check_lock.acquire().await
+    }
+
+    pub fn lock_key(&self) -> Key16 {
+        self.lock.lock_key
     }
 }
 

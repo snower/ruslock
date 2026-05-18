@@ -3,7 +3,9 @@ use crate::error::{Result, SlockError};
 use crate::key::Key16;
 use crate::protocol::constants::*;
 use crate::protocol::id::Id16;
-use crate::protocol::result::{CommandResult, InitCommandResult, LockCommandResult, PingCommandResult};
+use crate::protocol::result::{
+    CommandResult, InitCommandResult, LockCommandResult, PingCommandResult,
+};
 
 pub const HEADER_LEN: usize = 64;
 
@@ -38,7 +40,10 @@ pub fn decode_response(header: &[u8; HEADER_LEN], data: Option<Vec<u8>>) -> Resu
             result,
             init_type: header[20],
         })),
-        COMMAND_TYPE_PING => Ok(CommandResult::Ping(PingCommandResult { request_id, result })),
+        COMMAND_TYPE_PING => Ok(CommandResult::Ping(PingCommandResult {
+            request_id,
+            result,
+        })),
         COMMAND_TYPE_LOCK | COMMAND_TYPE_UNLOCK => {
             let lock_id = read_id(&header[22..38]);
             let lock_key = read_key(&header[38..54]);
@@ -59,12 +64,15 @@ pub fn decode_response(header: &[u8; HEADER_LEN], data: Option<Vec<u8>>) -> Resu
                 data: data.map(LockResultData::new),
             }))
         }
-        other => Err(SlockError::Protocol(format!("unknown command type {other:#04x}"))),
+        other => Err(SlockError::Protocol(format!(
+            "unknown command type {other:#04x}"
+        ))),
     }
 }
 
 pub fn response_has_extra_data(header: &[u8; HEADER_LEN]) -> bool {
-    matches!(header[2], COMMAND_TYPE_LOCK | COMMAND_TYPE_UNLOCK) && (header[20] & LOCK_FLAG_CONTAINS_DATA) != 0
+    matches!(header[2], COMMAND_TYPE_LOCK | COMMAND_TYPE_UNLOCK)
+        && (header[20] & LOCK_FLAG_CONTAINS_DATA) != 0
 }
 
 fn read_id(bytes: &[u8]) -> Id16 {

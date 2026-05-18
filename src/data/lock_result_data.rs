@@ -73,7 +73,9 @@ impl LockResultData {
                 continue;
             }
             if index + value_len > self.raw.len() {
-                return Err(SlockError::LockData("list value length exceeds data".to_string()));
+                return Err(SlockError::LockData(
+                    "list value length exceeds data".to_string(),
+                ));
             }
             values.push(self.raw[index..index + value_len].to_vec());
             index += value_len;
@@ -104,7 +106,9 @@ impl LockResultData {
                 continue;
             }
             if index + key_len > self.raw.len() {
-                return Err(SlockError::LockData("map key length exceeds data".to_string()));
+                return Err(SlockError::LockData(
+                    "map key length exceeds data".to_string(),
+                ));
             }
             let key = String::from_utf8(self.raw[index..index + key_len].to_vec())
                 .map_err(|err| SlockError::LockData(format!("invalid utf-8 map key: {err}")))?;
@@ -118,7 +122,9 @@ impl LockResultData {
                 continue;
             }
             if index + value_len > self.raw.len() {
-                return Err(SlockError::LockData("map value length exceeds data".to_string()));
+                return Err(SlockError::LockData(
+                    "map value length exceeds data".to_string(),
+                ));
             }
             values.insert(key, self.raw[index..index + value_len].to_vec());
             index += value_len;
@@ -139,11 +145,15 @@ impl LockResultData {
 
     fn value_offset(&self) -> Result<usize> {
         if self.raw.len() < 6 {
-            return Err(SlockError::LockData("lock result data shorter than header".to_string()));
+            return Err(SlockError::LockData(
+                "lock result data shorter than header".to_string(),
+            ));
         }
         if (self.raw[5] & LOCK_DATA_FLAG_CONTAINS_PROPERTY) != 0 {
             if self.raw.len() < 8 {
-                return Err(SlockError::LockData("lock result property length missing".to_string()));
+                return Err(SlockError::LockData(
+                    "lock result property length missing".to_string(),
+                ));
             }
             let property_len = u16::from_le_bytes([self.raw[6], self.raw[7]]) as usize;
             Ok(8 + property_len)

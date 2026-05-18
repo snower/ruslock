@@ -15,7 +15,10 @@ pub struct InitCommand {
 
 impl InitCommand {
     pub const fn new(request_id: Id16, client_id: Id16) -> Self {
-        Self { request_id, client_id }
+        Self {
+            request_id,
+            client_id,
+        }
     }
 
     pub fn with_client_id(client_id: Id16) -> Self {
@@ -159,9 +162,17 @@ impl Command {
                 header[61..63].copy_from_slice(&command.count.to_le_bytes());
                 header[63] = command.r_count;
                 let extra = if command.has_extra_data() {
-                    Some(command.data.as_ref().ok_or_else(|| {
-                        crate::error::SlockError::LockData("data flag set but data is missing".to_string())
-                    })?.encode()?)
+                    Some(
+                        command
+                            .data
+                            .as_ref()
+                            .ok_or_else(|| {
+                                crate::error::SlockError::LockData(
+                                    "data flag set but data is missing".to_string(),
+                                )
+                            })?
+                            .encode()?,
+                    )
                 } else {
                     None
                 };

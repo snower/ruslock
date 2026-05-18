@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use crate::blocking::client::Client;
 use crate::blocking::primitives::{
-    Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock, Semaphore,
-    TokenBucketFlow, TreeLock,
+    Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
+    Semaphore, TokenBucketFlow, TreeLock,
 };
 use crate::time::PackedTime;
 
@@ -54,7 +54,13 @@ impl Database {
         Lock::new(self.clone(), key, timeout, expired)
     }
 
-    pub fn event<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16, default_set: bool) -> Event {
+    pub fn event<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        timeout: u16,
+        expired: u16,
+        default_set: bool,
+    ) -> Event {
         Event::new(self.clone(), key, timeout, expired, default_set)
     }
 
@@ -69,15 +75,31 @@ impl Database {
         GroupEvent::new(self.clone(), key, client_id, version_id, timeout, expired)
     }
 
-    pub fn semaphore<K: AsRef<[u8]>>(&self, key: K, count: u16, timeout: u16, expired: u16) -> Semaphore {
+    pub fn semaphore<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        count: u16,
+        timeout: u16,
+        expired: u16,
+    ) -> Semaphore {
         Semaphore::new(self.clone(), key, count, timeout, expired)
     }
 
-    pub fn reentrant_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> ReentrantLock {
+    pub fn reentrant_lock<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> ReentrantLock {
         ReentrantLock::new(self.clone(), key, timeout, expired)
     }
 
-    pub fn read_write_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> ReadWriteLock {
+    pub fn read_write_lock<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> ReadWriteLock {
         ReadWriteLock::new(self.clone(), key, timeout, expired)
     }
 

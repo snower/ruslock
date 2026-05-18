@@ -36,7 +36,11 @@ fn lock_response(request: &[u8; 64], result: u8, data: Option<&[u8]>) -> [u8; 64
     response[2] = request[2];
     response[3..19].copy_from_slice(&request[3..19]);
     response[19] = result;
-    response[20] = if data.is_some() { LOCK_FLAG_CONTAINS_DATA } else { 0 };
+    response[20] = if data.is_some() {
+        LOCK_FLAG_CONTAINS_DATA
+    } else {
+        0
+    };
     response[21] = request[20];
     response[22..38].copy_from_slice(&request[21..37]);
     response[38..54].copy_from_slice(&request[37..53]);
@@ -96,8 +100,10 @@ fn pending_request_is_removed_after_timeout() {
         thread::sleep(Duration::from_millis(250));
     });
 
-    let mut options = ClientOptions::default();
-    options.command_timeout_grace = Duration::from_millis(50);
+    let options = ClientOptions {
+        command_timeout_grace: Duration::from_millis(50),
+        ..ClientOptions::default()
+    };
     let client = Client::with_options(address, options);
     client.open().unwrap();
     let err = client.ping().unwrap_err();
@@ -116,8 +122,10 @@ fn close_wakes_pending_request() {
         thread::sleep(Duration::from_secs(2));
     });
 
-    let mut options = ClientOptions::default();
-    options.command_timeout_grace = Duration::from_secs(5);
+    let options = ClientOptions {
+        command_timeout_grace: Duration::from_secs(5),
+        ..ClientOptions::default()
+    };
     let client = Client::with_options(address, options);
     client.open().unwrap();
     let ping_client = client.clone();
@@ -142,8 +150,16 @@ fn blocking_lock_success_updates_current_data() {
         assert_eq!(acquire[2], COMMAND_TYPE_LOCK);
         read_extra_if_present(&mut stream, &acquire);
         let response_data = [LOCK_DATA_COMMAND_TYPE_SET, 0, b'a', b'a', b'a'];
-        stream.write_all(&lock_response(&acquire, COMMAND_RESULT_SUCCED, Some(&response_data))).unwrap();
-        stream.write_all(&(response_data.len() as u32).to_le_bytes()).unwrap();
+        stream
+            .write_all(&lock_response(
+                &acquire,
+                COMMAND_RESULT_SUCCED,
+                Some(&response_data),
+            ))
+            .unwrap();
+        stream
+            .write_all(&(response_data.len() as u32).to_le_bytes())
+            .unwrap();
         stream.write_all(&response_data).unwrap();
     });
 
@@ -167,7 +183,9 @@ fn blocking_lock_maps_server_result_codes() {
             stream.write_all(&init_response(&init)).unwrap();
             let mut acquire = [0u8; 64];
             stream.read_exact(&mut acquire).unwrap();
-            stream.write_all(&lock_response(&acquire, result, None)).unwrap();
+            stream
+                .write_all(&lock_response(&acquire, result, None))
+                .unwrap();
         });
 
         let client = Client::connect(address).unwrap();

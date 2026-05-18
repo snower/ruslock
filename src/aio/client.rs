@@ -3,8 +3,8 @@ use std::sync::Arc;
 use crate::aio::connection::Connection;
 use crate::aio::database::Database;
 use crate::aio::primitives::{
-    Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock, Semaphore,
-    TokenBucketFlow, TreeLock,
+    Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
+    Semaphore, TokenBucketFlow, TreeLock,
 };
 use crate::error::Result;
 use crate::options::ClientOptions;
@@ -51,7 +51,9 @@ impl Client {
     }
 
     pub async fn ping(&self) -> Result<bool> {
-        let result = self.send_command(Command::Ping(PingCommand::new(Id16::new()))).await?;
+        let result = self
+            .send_command(Command::Ping(PingCommand::new(Id16::new())))
+            .await?;
         Ok(result.result_code() == COMMAND_RESULT_SUCCED)
     }
 
@@ -63,8 +65,15 @@ impl Client {
         self.select_database(0).lock(key, timeout, expired)
     }
 
-    pub fn event<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16, default_set: bool) -> Event {
-        self.select_database(0).event(key, timeout, expired, default_set)
+    pub fn event<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        timeout: u16,
+        expired: u16,
+        default_set: bool,
+    ) -> Event {
+        self.select_database(0)
+            .event(key, timeout, expired, default_set)
     }
 
     pub fn group_event<K: AsRef<[u8]>>(
@@ -79,16 +88,35 @@ impl Client {
             .group_event(key, client_id, version_id, timeout, expired)
     }
 
-    pub fn semaphore<K: AsRef<[u8]>>(&self, key: K, count: u16, timeout: u16, expired: u16) -> Semaphore {
-        self.select_database(0).semaphore(key, count, timeout, expired)
+    pub fn semaphore<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        count: u16,
+        timeout: u16,
+        expired: u16,
+    ) -> Semaphore {
+        self.select_database(0)
+            .semaphore(key, count, timeout, expired)
     }
 
-    pub fn reentrant_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> ReentrantLock {
-        self.select_database(0).reentrant_lock(key, timeout, expired)
+    pub fn reentrant_lock<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> ReentrantLock {
+        self.select_database(0)
+            .reentrant_lock(key, timeout, expired)
     }
 
-    pub fn read_write_lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> ReadWriteLock {
-        self.select_database(0).read_write_lock(key, timeout, expired)
+    pub fn read_write_lock<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        timeout: u16,
+        expired: u16,
+    ) -> ReadWriteLock {
+        self.select_database(0)
+            .read_write_lock(key, timeout, expired)
     }
 
     pub fn priority_lock<K: AsRef<[u8]>>(
@@ -130,6 +158,10 @@ impl Client {
 
     pub async fn pending_len(&self) -> usize {
         self.inner.connection.pending_len().await
+    }
+
+    pub(crate) fn init_type(&self) -> u8 {
+        self.inner.connection.init_type()
     }
 
     pub(crate) async fn send_command(&self, command: Command) -> Result<CommandResult> {
