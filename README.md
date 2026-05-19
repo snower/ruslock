@@ -60,6 +60,40 @@ fn main() -> Result<()> {
 }
 ```
 
+## Runtime Client Selection
+
+Use `ClientHandle` when deployment is selected from configuration. A single
+node creates a normal client backend, while multiple nodes create a replset
+backend. The business code after construction is identical.
+
+```rust,no_run
+use ruslock::Result;
+
+fn run(nodes: String) -> Result<()> {
+    let client = ruslock::blocking::ClientHandle::connect(nodes)?;
+    let mut lock = client.lock("order:1001", 5, 10);
+
+    lock.acquire()?;
+    lock.release()?;
+    client.close();
+    Ok(())
+}
+```
+
+```rust,no_run
+use ruslock::Result;
+
+async fn run(nodes: String) -> Result<()> {
+    let client = ruslock::aio::ClientHandle::connect(nodes).await?;
+    let mut lock = client.lock("order:1001", 5, 10);
+
+    lock.acquire().await?;
+    lock.release().await?;
+    client.close().await;
+    Ok(())
+}
+```
+
 ## LockData
 
 ```rust

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use crate::aio::api::{BoxFuture, ClientApi};
 use crate::aio::connection::Connection;
-use crate::aio::database::Database;
+use crate::aio::database::{ClientBackend, Database};
 use crate::aio::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
@@ -58,7 +59,7 @@ impl Client {
     }
 
     pub fn select_database(&self, db_id: u8) -> Database {
-        Database::new(self.clone(), db_id)
+        Database::new(ClientBackend::Single(self.clone()), db_id)
     }
 
     pub fn lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> Lock {
@@ -166,5 +167,23 @@ impl Client {
 
     pub(crate) async fn send_command(&self, command: Command) -> Result<CommandResult> {
         self.inner.connection.send_command(command).await
+    }
+}
+
+impl ClientApi for Client {
+    fn open(&self) -> BoxFuture<'_, Result<()>> {
+        Box::pin(Self::open(self))
+    }
+
+    fn close(&self) -> BoxFuture<'_, ()> {
+        Box::pin(Self::close(self))
+    }
+
+    fn ping(&self) -> BoxFuture<'_, Result<bool>> {
+        Box::pin(Self::ping(self))
+    }
+
+    fn select_database(&self, db_id: u8) -> Database {
+        Self::select_database(self, db_id)
     }
 }

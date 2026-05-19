@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use crate::blocking::api::ClientApi;
 use crate::blocking::connection::Connection;
-use crate::blocking::database::Database;
+use crate::blocking::database::{ClientBackend, Database};
 use crate::blocking::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
@@ -56,7 +57,7 @@ impl Client {
     }
 
     pub fn select_database(&self, db_id: u8) -> Database {
-        Database::new(self.clone(), db_id)
+        Database::new(ClientBackend::Single(self.clone()), db_id)
     }
 
     pub fn lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> Lock {
@@ -164,5 +165,23 @@ impl Client {
 
     pub(crate) fn send_command(&self, command: Command) -> Result<CommandResult> {
         self.inner.connection.send_command(command)
+    }
+}
+
+impl ClientApi for Client {
+    fn open(&self) -> Result<()> {
+        Self::open(self)
+    }
+
+    fn close(&self) {
+        Self::close(self)
+    }
+
+    fn ping(&self) -> Result<bool> {
+        Self::ping(self)
+    }
+
+    fn select_database(&self, db_id: u8) -> Database {
+        Self::select_database(self, db_id)
     }
 }

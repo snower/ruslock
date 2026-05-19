@@ -61,6 +61,14 @@ where
 }
 
 #[cfg(feature = "blocking")]
+fn unused_blocking_address() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    drop(listener);
+    address
+}
+
+#[cfg(feature = "blocking")]
 #[test]
 fn blocking_replset_falls_back_to_first_live_node() {
     let address = start_blocking_server(|mut stream| {
@@ -184,6 +192,38 @@ fn blocking_replset_retries_lock_after_transport_failure() {
     lock.acquire().unwrap();
 }
 
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_replset_waits_for_node_to_appear_after_all_nodes_are_down() {
+    let address = unused_blocking_address();
+    let server_address = address.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(100));
+        let listener = TcpListener::bind(server_address).unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        stream.write_all(&init_response(&init)).unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_SUCCED))
+            .unwrap();
+    });
+    let options = ClientOptions {
+        connect_timeout: Duration::from_millis(20),
+        command_timeout_grace: Duration::from_secs(1),
+        ..ClientOptions::default()
+    };
+    let client = ruslock::blocking::ReplsetClient::with_options(address, options);
+
+    let mut lock = client.lock("replset-pending-wakeup", 0, 10);
+    lock.acquire().unwrap();
+}
+
 #[cfg(feature = "aio")]
 async fn start_async_server<F, Fut>(handler: F) -> String
 where
@@ -196,6 +236,14 @@ where
         let (stream, _) = listener.accept().await.unwrap();
         handler(stream).await;
     });
+    address
+}
+
+#[cfg(feature = "aio")]
+fn unused_async_address() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    drop(listener);
     address
 }
 
@@ -343,5 +391,40 @@ async fn async_replset_retries_lock_after_transport_failure() {
         .unwrap();
 
     let mut lock = client.lock("replset-transport-retry", 0, 10);
+    lock.acquire().await.unwrap();
+}
+
+#[cfg(feature = "aio")]
+#[tokio::test]
+async fn async_replset_waits_for_node_to_appear_after_all_nodes_are_down() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let address = unused_async_address();
+    let server_address = address.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let listener = tokio::net::TcpListener::bind(server_address).await.unwrap();
+        let (mut stream, _) = listener.accept().await.unwrap();
+
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).await.unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_SUCCED))
+            .await
+            .unwrap();
+    });
+    let options = ClientOptions {
+        connect_timeout: Duration::from_millis(20),
+        command_timeout_grace: Duration::from_secs(1),
+        ..ClientOptions::default()
+    };
+    let client = ruslock::aio::ReplsetClient::with_options(address, options);
+
+    let mut lock = client.lock("replset-pending-wakeup", 0, 10);
     lock.acquire().await.unwrap();
 }

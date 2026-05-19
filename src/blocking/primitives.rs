@@ -201,11 +201,7 @@ impl Lock {
             self.r_count,
             data,
         );
-        match self
-            .database
-            .client()
-            .send_command(Command::Lock(command))?
-        {
+        match self.database.send_command(Command::Lock(command))? {
             CommandResult::Lock(result) => Ok(result),
             _ => Err(SlockError::Protocol("expected lock result".to_string())),
         }
@@ -727,7 +723,15 @@ impl TreeLock {
         }
     }
 
-    pub fn new_child<K: AsRef<[u8]>>(&self, key: K) -> Self {
+    pub fn new_child(&self) -> Self {
+        self.load_child(Key16::from_bytes(Id16::new().into_bytes()).as_bytes())
+    }
+
+    pub fn new_child_with_key<K: AsRef<[u8]>>(&self, key: K) -> Self {
+        self.load_child(key)
+    }
+
+    pub fn load_child<K: AsRef<[u8]>>(&self, key: K) -> Self {
         let mut child = Self::new(
             self.lock.database.clone(),
             key,
@@ -736,6 +740,27 @@ impl TreeLock {
         );
         child.parent_key = Some(self.lock.lock_key);
         child
+    }
+
+    pub fn new_leaf_lock(&self) -> TreeLeafLock {
+        self.load_leaf_lock(Id16::new())
+    }
+
+    pub fn load_leaf_lock(&self, lock_id: Id16) -> TreeLeafLock {
+        let mut lock = Lock::with_lock_id(
+            self.lock.database.clone(),
+            self.lock.lock_key.as_bytes(),
+            lock_id,
+            self.lock.timeout.value(),
+            self.lock.expired.value(),
+            u16::MAX,
+            1,
+        );
+        lock.timeout = lock.timeout.merge_flags(TIMEOUT_FLAG_RCOUNT_IS_PRIORITY);
+        TreeLeafLock {
+            tree_lock: self.clone(),
+            lock,
+        }
     }
 
     pub fn acquire(&mut self) -> Result<LockCommandResult> {
@@ -762,6 +787,92 @@ impl TreeLock {
 
     pub fn lock_key(&self) -> Key16 {
         self.lock.lock_key
+    }
+
+    pub fn parent_key(&self) -> Option<Key16> {
+        self.parent_key
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.parent_key.is_none()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TreeLeafLock {
+    tree_lock: TreeLock,
+    lock: Lock,
+}
+
+impl TreeLeafLock {
+    pub fn acquire(&mut self) -> Result<LockCommandResult> {
+        let mut child_check_lock = None;
+        let mut parent_check_lock = None;
+
+        if let Some(parent_key) = self.tree_lock.parent_key {
+            let mut check = Lock::with_lock_id(
+                self.tree_lock.lock.database.clone(),
+                self.tree_lock.lock.lock_key.as_bytes(),
+                Id16::from_bytes(parent_key.into_bytes()),
+                0,
+                self.tree_lock.lock.expired.value(),
+                u16::MAX,
+                1,
+            );
+            check.timeout = check.timeout.merge_flags(TIMEOUT_FLAG_RCOUNT_IS_PRIORITY);
+            match check.acquire_with_flags(LOCK_FLAG_LOCK_TREE_LOCK, None) {
+                Ok(_) | Err(SlockError::LockLocked(_)) => {}
+                Err(err) => return Err(err),
+            }
+            child_check_lock = Some(check);
+
+            let mut check = Lock::with_lock_id(
+                self.tree_lock.lock.database.clone(),
+                parent_key.as_bytes(),
+                Id16::from_bytes(self.tree_lock.lock.lock_key.into_bytes()),
+                0,
+                self.tree_lock.lock.expired.value(),
+                u16::MAX,
+                1,
+            );
+            check.timeout = check.timeout.merge_flags(TIMEOUT_FLAG_RCOUNT_IS_PRIORITY);
+            match check.acquire() {
+                Ok(_) | Err(SlockError::LockLocked(_)) => {}
+                Err(err) => {
+                    if let Some(mut lock) = child_check_lock {
+                        let _ = lock.release();
+                    }
+                    return Err(err);
+                }
+            }
+            parent_check_lock = Some(check);
+        }
+
+        match self.lock.acquire() {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                if let Some(mut lock) = child_check_lock {
+                    let _ = lock.release();
+                }
+                if let Some(mut lock) = parent_check_lock {
+                    let _ = lock.release();
+                }
+                Err(err)
+            }
+        }
+    }
+
+    pub fn release(&mut self) -> Result<LockCommandResult> {
+        self.lock
+            .release_with_flags(UNLOCK_FLAG_UNLOCK_TREE_LOCK, None)
+    }
+
+    pub fn lock_key(&self) -> Key16 {
+        self.lock.lock_key
+    }
+
+    pub fn lock_id(&self) -> Id16 {
+        self.lock.lock_id
     }
 }
 

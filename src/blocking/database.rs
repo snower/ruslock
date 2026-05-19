@@ -6,18 +6,37 @@ use crate::blocking::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
 };
+use crate::blocking::replset::ReplsetClient;
+use crate::error::Result;
+use crate::protocol::command::Command;
+use crate::protocol::result::CommandResult;
 use crate::time::PackedTime;
 
 #[derive(Clone, Debug)]
+pub(crate) enum ClientBackend {
+    Single(Client),
+    Replset(ReplsetClient),
+}
+
+impl ClientBackend {
+    pub(crate) fn send_command(&self, command: Command) -> Result<CommandResult> {
+        match self {
+            Self::Single(client) => client.send_command(command),
+            Self::Replset(client) => client.send_command(command),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Database {
-    client: Client,
+    client: ClientBackend,
     db_id: u8,
     default_timeout_flags: Arc<AtomicU16>,
     default_expired_flags: Arc<AtomicU16>,
 }
 
 impl Database {
-    pub(crate) fn new(client: Client, db_id: u8) -> Self {
+    pub(crate) fn new(client: ClientBackend, db_id: u8) -> Self {
         Self {
             client,
             db_id,
@@ -46,8 +65,8 @@ impl Database {
         PackedTime::with_flags(value, self.default_expired_flags.load(Ordering::SeqCst))
     }
 
-    pub(crate) fn client(&self) -> &Client {
-        &self.client
+    pub(crate) fn send_command(&self, command: Command) -> Result<CommandResult> {
+        self.client.send_command(command)
     }
 
     pub fn lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> Lock {
