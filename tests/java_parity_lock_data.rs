@@ -1,10 +1,13 @@
 #![cfg(feature = "blocking")]
 
 use std::net::{TcpStream, ToSocketAddrs};
+use std::thread;
 use std::time::Duration;
 
 use ruslock::blocking::Client;
-use ruslock::LockData;
+use ruslock::protocol::command::LockCommand;
+use ruslock::protocol::constants::COMMAND_TYPE_LOCK;
+use ruslock::{Id16, Key16, LockData, PackedTime, SlockError};
 
 fn endpoint() -> String {
     let host = std::env::var("SLOCK_TEST_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -91,6 +94,58 @@ fn test_lock_data() {
     assert_eq!(lock1.current_data().unwrap().as_string().unwrap(), "bbccc");
     lock2.release().unwrap();
     assert_eq!(lock2.current_data().unwrap().as_string().unwrap(), "ccc");
+
+    let target_key = Key16::new(unique_key("lockdata5-target"));
+    let mut lock1 = client.lock(unique_key("lockdata5"), 0, 10);
+    let nested = LockCommand::new(
+        COMMAND_TYPE_LOCK,
+        0,
+        0,
+        Id16::new(),
+        target_key,
+        Id16::new(),
+        PackedTime::new(0),
+        PackedTime::new(10),
+        0,
+        0,
+        None,
+    );
+    lock1
+        .acquire_with_data(LockData::execute(&nested).unwrap())
+        .unwrap();
+    thread::sleep(Duration::from_millis(100));
+    let mut lock2 = client.lock(target_key.as_bytes(), 0, 10);
+    let err = lock2.acquire().unwrap_err();
+    assert!(matches!(err, SlockError::LockTimeout(_)));
+    lock1.release().unwrap();
+
+    let target_key = Key16::new(unique_key("lockdata6-target"));
+    let mut lock1 = client.lock(unique_key("lockdata6"), 0, 10);
+    let nested = LockCommand::new(
+        COMMAND_TYPE_LOCK,
+        0,
+        0,
+        Id16::new(),
+        target_key,
+        Id16::new(),
+        PackedTime::new(0),
+        PackedTime::new(10),
+        0,
+        0,
+        None,
+    );
+    lock1
+        .acquire_with_data(LockData::pipeline(vec![
+            LockData::set("aaa"),
+            LockData::execute(&nested).unwrap(),
+        ]))
+        .unwrap();
+    thread::sleep(Duration::from_millis(100));
+    let mut lock2 = client.lock(target_key.as_bytes(), 0, 10);
+    let err = lock2.acquire().unwrap_err();
+    assert!(matches!(err, SlockError::LockTimeout(_)));
+    lock1.release().unwrap();
+    assert_eq!(lock1.current_data().unwrap().as_string().unwrap(), "aaa");
 
     let mut lock1 = client.lock(unique_key("lockdata7"), 0, 10);
     lock1.set_count(10);

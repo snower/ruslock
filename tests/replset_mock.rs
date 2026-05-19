@@ -33,6 +33,19 @@ fn ping_response(request: &[u8; 64]) -> [u8; 64] {
     response
 }
 
+fn lock_response(request: &[u8; 64], result: u8) -> [u8; 64] {
+    let mut response = [0u8; 64];
+    response[0] = MAGIC;
+    response[1] = VERSION;
+    response[2] = request[2];
+    response[3..19].copy_from_slice(&request[3..19]);
+    response[19] = result;
+    response[21] = request[20];
+    response[22..38].copy_from_slice(&request[21..37]);
+    response[38..54].copy_from_slice(&request[37..53]);
+    response
+}
+
 #[cfg(feature = "blocking")]
 fn start_blocking_server<F>(handler: F) -> String
 where
@@ -106,6 +119,69 @@ fn blocking_replset_prefers_leader_over_first_live_node() {
 
     client.open().unwrap();
     assert!(client.ping().unwrap());
+}
+
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_replset_retries_lock_state_error_on_next_live_node() {
+    let first = start_blocking_server(|mut stream| {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        stream.write_all(&init_response(&init)).unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_STATE_ERROR))
+            .unwrap();
+    });
+    let second = start_blocking_server(|mut stream| {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        stream.write_all(&init_response(&init)).unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_SUCCED))
+            .unwrap();
+    });
+    let client = ruslock::blocking::ReplsetClient::connect(format!("{first},{second}")).unwrap();
+
+    let mut lock = client.lock("replset-state-retry", 0, 10);
+    lock.acquire().unwrap();
+}
+
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_replset_retries_lock_after_transport_failure() {
+    let first = start_blocking_server(|mut stream| {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        stream.write_all(&init_response(&init)).unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+    });
+    let second = start_blocking_server(|mut stream| {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        stream.write_all(&init_response(&init)).unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_SUCCED))
+            .unwrap();
+    });
+    let client = ruslock::blocking::ReplsetClient::connect(format!("{first},{second}")).unwrap();
+
+    let mut lock = client.lock("replset-transport-retry", 0, 10);
+    lock.acquire().unwrap();
 }
 
 #[cfg(feature = "aio")]
@@ -190,4 +266,82 @@ async fn async_replset_prefers_leader_over_first_live_node() {
 
     client.open().await.unwrap();
     assert!(client.ping().await.unwrap());
+}
+
+#[cfg(feature = "aio")]
+#[tokio::test]
+async fn async_replset_retries_lock_state_error_on_next_live_node() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let first = start_async_server(|mut stream| async move {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).await.unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_STATE_ERROR))
+            .await
+            .unwrap();
+    })
+    .await;
+    let second = start_async_server(|mut stream| async move {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).await.unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_SUCCED))
+            .await
+            .unwrap();
+    })
+    .await;
+    let client = ruslock::aio::ReplsetClient::connect(format!("{first},{second}"))
+        .await
+        .unwrap();
+
+    let mut lock = client.lock("replset-state-retry", 0, 10);
+    lock.acquire().await.unwrap();
+}
+
+#[cfg(feature = "aio")]
+#[tokio::test]
+async fn async_replset_retries_lock_after_transport_failure() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let first = start_async_server(|mut stream| async move {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).await.unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+    })
+    .await;
+    let second = start_async_server(|mut stream| async move {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+
+        let mut lock = [0u8; 64];
+        stream.read_exact(&mut lock).await.unwrap();
+        assert_eq!(lock[2], COMMAND_TYPE_LOCK);
+        stream
+            .write_all(&lock_response(&lock, COMMAND_RESULT_SUCCED))
+            .await
+            .unwrap();
+    })
+    .await;
+    let client = ruslock::aio::ReplsetClient::connect(format!("{first},{second}"))
+        .await
+        .unwrap();
+
+    let mut lock = client.lock("replset-transport-retry", 0, 10);
+    lock.acquire().await.unwrap();
 }

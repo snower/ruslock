@@ -20,9 +20,11 @@ D:\workspace\github\jaslock\src\test\java\io\github\snower\jaslock\ClientTest.ja
 
 The implementation must preserve the protocol details documented in `docs/Architecture.md` and `design.md`: 64-byte command frames, little-endian numeric fields, LockData framing, requestId response matching, key normalization, timeout/expired flags, and replset retry behavior.
 
+New requirement added on 2026-05-19: `Client` and `ReplsetClient` must implement the same public abstraction inside each calling model, so business code can switch between single IP and multi-IP deployment by changing construction/configuration only. After construction, usage must be identical through `ClientApi`/`ClientHandle`, shared `Database`, and shared primitive facade types.
+
 ## Execution Status
 
-Last updated: 2026-05-18.
+Last updated: 2026-05-19.
 
 Completed:
 
@@ -43,6 +45,7 @@ Completed:
 - [x] Task 9 and Task 10 now have mock command-construction coverage for every primitive in both blocking and async APIs.
 - [x] TreeLock now exposes Java-parity `wait` and `lock_key` helpers for blocking and async APIs.
 - [x] Task 11 replset now maintains per-node clients, falls back to the first live node, prefers nodes whose Init response marks `INIT_TYPE_FLAG_IS_LEADER`, and has blocking/async mock coverage for those paths.
+- [x] Task 11 replset lock send path now has blocking/async mock coverage for write-failure retry and lock `STATE_ERROR` retry.
 - [x] Task 12 Java parity test files exist and run against local `slock` when available; benchmark parity is ignored by default unless explicitly requested.
 - [x] Task 12 Java parity tests now include stronger assertion chains for Event, GroupEvent, ReadWriteLock, Replset lock data, LockData set/incr/append/shift/push/pop, TreeLock wait/child, MaxConcurrentFlow, and TokenBucketFlow.
 - [x] Task 13 README/rustdoc quickstarts, feature flags, LockData examples, and local slock test notes are documented.
@@ -50,7 +53,8 @@ Completed:
 Partially completed and still in progress:
 
 - [ ] Task 9 and Task 10 primitive state-transition unit coverage is still thinner than the Java parity surface.
-- [ ] Task 11 replset still needs shared pending queue behavior, pending wakeup when a leader/live node appears after all nodes are down, write-failure retry, and lock `STATE_ERROR` retry.
+- [ ] New 2026-05-19 API requirement still needs implementation: `ClientApi`/`ClientHandle` for blocking and async, with `Client` and `ReplsetClient` returning the same public `Database` and primitive facade types.
+- [ ] Task 11 replset still needs shared pending queue behavior and pending wakeup when a leader/live node appears after all nodes are down.
 - [ ] Task 12 Java parity still is not a strict line-by-line port for Java TreeLeafLock internals, LockData execute/pipeline live side effects, the 1000-callback PriorityLock ordering stress, and full benchmark scale.
 - [ ] Plan commit steps are intentionally not completed because no commit was requested yet.
 
@@ -75,10 +79,14 @@ Latest completed verification:
 
 ## Public API Targets
 
+- `ruslock::blocking::ClientApi`
+- `ruslock::blocking::ClientHandle`
 - `ruslock::blocking::Client`
 - `ruslock::blocking::ReplsetClient`
 - `ruslock::blocking::Database`
 - `ruslock::blocking::{Lock, Event, GroupEvent, Semaphore, ReentrantLock, ReadWriteLock, PriorityLock, MaxConcurrentFlow, TokenBucketFlow, TreeLock}`
+- `ruslock::aio::ClientApi`
+- `ruslock::aio::ClientHandle`
 - `ruslock::aio::Client`
 - `ruslock::aio::ReplsetClient`
 - `ruslock::aio::Database`
@@ -271,6 +279,37 @@ Latest completed verification:
 - [ ] Run `cargo test --all-features`.
 - [ ] Commit database factories.
 
+## Task 8A: Unified Client Abstraction
+
+**Files:**
+- Create: `src/blocking/api.rs`
+- Create: `src/blocking/handle.rs`
+- Create: `src/aio/api.rs`
+- Create: `src/aio/handle.rs`
+- Modify: `src/blocking/client.rs`
+- Modify: `src/blocking/replset.rs`
+- Modify: `src/blocking/database.rs`
+- Modify: `src/blocking/primitives.rs`
+- Modify: `src/aio/client.rs`
+- Modify: `src/aio/replset.rs`
+- Modify: `src/aio/database.rs`
+- Modify: `src/aio/primitives.rs`
+- Modify: `src/blocking/mod.rs`
+- Modify: `src/aio/mod.rs`
+- Test: API interchangeability tests
+
+- [ ] Define `blocking::ClientApi` implemented by `blocking::Client`, `blocking::ReplsetClient`, and `blocking::ClientHandle`.
+- [ ] Define `aio::ClientApi` implemented by `aio::Client`, `aio::ReplsetClient`, and `aio::ClientHandle`, using associated future types or boxed futures so the public trait does not require `async-trait`.
+- [ ] Implement `ClientHandle` enum/facade for blocking and async; it must choose single-node or replset backend from node-count/configuration at construction time.
+- [ ] Ensure `ClientApi::select_database` returns the same public `Database` type for `Client`, `ReplsetClient`, and `ClientHandle`.
+- [ ] Ensure root primitive factories (`lock`, `event`, `group_event`, `semaphore`, `reentrant_lock`, `read_write_lock`, `priority_lock`, `max_concurrent_flow`, `token_bucket_flow`, `tree_lock`) return the same public primitive facade types regardless of backend.
+- [ ] Move replset-specific send/retry behavior behind a shared command-sender abstraction so business primitives do not need `ReplsetLock`/`ReplsetEvent` public types.
+- [ ] Add compile-time tests that the same generic function over `blocking::ClientApi` works with `Client`, `ReplsetClient`, and `ClientHandle`.
+- [ ] Add async compile-time/runtime tests that the same function over `aio::ClientApi` works with `Client`, `ReplsetClient`, and `ClientHandle`.
+- [ ] Add configuration/factory tests proving a single address creates a single-node backend and multiple addresses create a replset backend while usage code is unchanged.
+- [ ] Run `cargo test --all-features`.
+- [ ] Commit unified client abstraction.
+
 ## Task 9: Remaining Blocking Primitives
 
 **Files:**
@@ -330,11 +369,12 @@ Latest completed verification:
 - [x] Track per-node clients and the active leader/live node index.
 - [ ] Track shared requests, pending commands, and retry type.
 - [x] Prefer leader, fallback to first live node.
-- [ ] Retry on write failure and lock `STATE_ERROR`.
+- [x] Retry on write failure and lock `STATE_ERROR`.
 - [ ] Wake pending commands when leader/live node appears.
 - [x] Implement blocking and async `ReplsetClient` factory methods matching single client APIs.
 - [x] Add tests for node parsing, single-node replset behavior, live-node fallback, and leader selection.
-- [ ] Add tests for pending wakeup and state-error retry.
+- [x] Add tests for write-failure retry and state-error retry.
+- [ ] Add tests for pending wakeup.
 - [x] Run `cargo test --all-features`.
 - [ ] Commit replset support.
 
@@ -390,6 +430,7 @@ Latest completed verification:
 - [ ] Add blocking quickstart.
 - [ ] Add async quickstart.
 - [ ] Add ReplsetClient quickstart.
+- [ ] Add ClientApi/ClientHandle quickstart showing single-node/replset runtime switching without business-code changes.
 - [ ] Add LockData usage examples.
 - [ ] Document feature flags.
 - [ ] Document local slock requirement for integration/parity tests.
@@ -414,6 +455,7 @@ Completeness review:
 
 - Covers the requested root `plan.md` handoff.
 - Covers crate scaffold, shared protocol, LockData, blocking transport, async transport, database factories, all synchronization primitives, replset, Java parity tests, and docs.
+- Covers the 2026-05-19 interchangeable-client requirement through a dedicated `ClientApi`/`ClientHandle` task for both blocking and async APIs.
 - Covers the full Java `ClientTest.java` test list, including benchmark as ignored-by-default.
 - Covers both unit tests and integration/parity tests.
 - Covers final verification commands.
@@ -428,5 +470,6 @@ Reasonableness review:
 Assumptions:
 
 - `replset` is part of v1 and not deferred.
+- `Client` and `ReplsetClient` must remain business-code interchangeable through the same abstraction; runtime construction may vary by single or multiple endpoints, but downstream usage must not vary.
 - Tokio is the async runtime.
 - Java compatibility is defined by `docs/Architecture.md`, `design.md`, and `D:\workspace\github\jaslock\src\test\java\io\github\snower\jaslock\ClientTest.java`.

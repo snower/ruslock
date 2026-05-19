@@ -1,5 +1,7 @@
 # ruslock Rust Driver Design
 
+> 2026-05-19 新增硬性约束：同一调用模型内，`Client` 和 `ReplsetClient` 必须实现相同抽象接口，并且业务代码能在单 IP 和多 IP 部署之间无修改切换。构造阶段可以根据程序参数选择单节点或 replset，但构造完成后必须通过同一套 client/database/primitive API 使用。
+
 本文是在 `docs/Architecture.md` 的协议和 Java 实现梳理基础上，面向 `ruslock` 的完整 Rust 库设计。目标是实现一个兼容 `slock` 二进制协议的 Rust driver，并同时提供普通 blocking 同步调用接口和 `async/await` 异步调用接口。
 
 ## 1. 设计目标
@@ -54,6 +56,77 @@ lock.acquire().await?;
 lock.release().await?;
 ```
 
+### 2.3 Client / ReplsetClient 可替换抽象
+
+`Client` 和 `ReplsetClient` 不能只是“方法名相似”，而是必须在 public API 层可替换：
+
+1. blocking 与 async 分别定义自己的公共抽象，避免把同步和异步方法强行合并到同一个 trait。
+2. `blocking::Client`、`blocking::ReplsetClient`、`blocking::ClientHandle` 都实现同一 `blocking::ClientApi`。
+3. `aio::Client`、`aio::ReplsetClient`、`aio::ClientHandle` 都实现同一 `aio::ClientApi`。
+4. 业务代码依赖 `ClientApi` 或 `ClientHandle`，不依赖单节点/replset 具体类型。
+5. `select_database`、`lock`、`event`、`semaphore`、flow、tree lock 等工厂方法必须返回同一套 public facade 类型；不向业务层暴露 `ReplsetLock` 这类行为不同的 primitive 类型。
+6. replset 的 leader 选择、write failure retry、`STATE_ERROR` retry、pending wakeup 只存在于底层 command sender，不改变上层 primitive 的调用方式。
+
+blocking 推荐形态：
+
+```rust
+pub trait ClientApi: Clone + Send + Sync + 'static {
+    fn open(&self) -> Result<()>;
+    fn close(&self) -> Result<()>;
+    fn ping(&self) -> Result<()>;
+    fn select_database(&self, db_id: u8) -> Database;
+    fn lock<K: Into<Key16>>(&self, key: K, timeout: u32, expired: u32) -> Lock;
+}
+
+pub enum ClientHandle {
+    Single(Client),
+    Replset(ReplsetClient),
+}
+
+impl ClientApi for ClientHandle { /* enum dispatch */ }
+```
+
+async 推荐形态：
+
+```rust
+use core::future::Future;
+
+pub trait ClientApi: Clone + Send + Sync + 'static {
+    type OpenFuture<'a>: Future<Output = Result<()>> + Send + 'a where Self: 'a;
+    type CloseFuture<'a>: Future<Output = Result<()>> + Send + 'a where Self: 'a;
+    type PingFuture<'a>: Future<Output = Result<()>> + Send + 'a where Self: 'a;
+
+    fn open(&self) -> Self::OpenFuture<'_>;
+    fn close(&self) -> Self::CloseFuture<'_>;
+    fn ping(&self) -> Self::PingFuture<'_>;
+    fn select_database(&self, db_id: u8) -> Database;
+    fn lock<K: Into<Key16>>(&self, key: K, timeout: u32, expired: u32) -> Lock;
+}
+
+pub enum ClientHandle {
+    Single(Client),
+    Replset(ReplsetClient),
+}
+```
+
+运行时根据参数选择部署形态时，推荐返回 `ClientHandle`：
+
+```rust
+let client = ruslock::blocking::ClientHandle::connect(nodes)?;
+let mut lock = client.lock("order:1001", 5, 5);
+lock.acquire()?;
+```
+
+如果调用方更喜欢泛型，也可以写成：
+
+```rust
+fn run<C: ruslock::blocking::ClientApi>(client: &C) -> ruslock::Result<()> {
+    let mut lock = client.lock("order:1001", 5, 5);
+    lock.acquire()?;
+    lock.release()
+}
+```
+
 ## 3. Crate 结构
 
 ```text
@@ -84,6 +157,8 @@ src/
     tree_lock_logic.rs
   blocking/
     mod.rs
+    api.rs
+    handle.rs
     client.rs
     connection.rs
     replset.rs
@@ -91,6 +166,8 @@ src/
     primitives.rs
   aio/
     mod.rs
+    api.rs
+    handle.rs
     client.rs
     connection.rs
     replset.rs
@@ -114,9 +191,11 @@ src/
 
 | 模块 | 职责 |
 | --- | --- |
-| `blocking::Client` | 单节点同步 client facade |
+| `blocking::ClientApi` | 同步 client 抽象接口，单节点、replset、统一 handle 都必须实现 |
+| `blocking::ClientHandle` | 运行时可替换 facade，根据节点数量持有 `Client` 或 `ReplsetClient` |
+| `blocking::Client` | 单节点同步 client facade，实现 `ClientApi` |
 | `blocking::Connection` | `std::net::TcpStream`、reader thread、writer mutex、pending map |
-| `blocking::ReplsetClient` | 多节点同步 client、leader 选择和 pending 重发 |
+| `blocking::ReplsetClient` | 多节点同步 client、leader 选择和 pending 重发，实现 `ClientApi` |
 | `blocking::Database` | 同步 database facade |
 | `blocking::primitives` | 同步 `Lock/Event/...` 包装器 |
 
@@ -124,9 +203,11 @@ src/
 
 | 模块 | 职责 |
 | --- | --- |
-| `aio::Client` | 单节点异步 client facade |
+| `aio::ClientApi` | 异步 client 抽象接口，单节点、replset、统一 handle 都必须实现 |
+| `aio::ClientHandle` | 运行时可替换 facade，根据节点数量持有 `Client` 或 `ReplsetClient` |
+| `aio::Client` | 单节点异步 client facade，实现 `ClientApi` |
 | `aio::ConnectionActor` | tokio task，管理连接、读写、pending map、重连 |
-| `aio::ReplsetClient` | 多节点异步 client、leader 选择和 pending 重发 |
+| `aio::ReplsetClient` | 多节点异步 client、leader 选择和 pending 重发，实现 `ClientApi` |
 | `aio::Database` | 异步 database facade |
 | `aio::primitives` | 异步 `Lock/Event/...` 包装器 |
 
@@ -730,10 +811,10 @@ guard.release().await?;
 
 ### 13.1 公共行为
 
-`ReplsetClient` 对外与 `Client` 保持一致：
+`ReplsetClient` 对外必须与 `Client` 完全可替换，而不是只提供一组同名方法。两者都实现同一 `ClientApi`，并且通过 `ClientHandle` 支持运行时选择：
 
 ```rust
-let client = ruslock::blocking::ReplsetClient::connect(["127.0.0.1:5658", "127.0.0.1:5659"])?;
+let client = ruslock::blocking::ClientHandle::connect(["127.0.0.1:5658", "127.0.0.1:5659"])?;
 let mut lock = client.lock("k", 5, 5);
 lock.acquire()?;
 ```
@@ -741,8 +822,15 @@ lock.acquire()?;
 异步：
 
 ```rust
-let client = ruslock::aio::ReplsetClient::connect(["127.0.0.1:5658"]).await?;
+let client = ruslock::aio::ClientHandle::connect(["127.0.0.1:5658"]).await?;
 ```
+
+具体要求：
+
+- `Client` 和 `ReplsetClient` 的业务入口由 `ClientApi` 约束。
+- `ClientHandle::connect(nodes)` 负责按节点数量选择单节点或 replset backend。
+- `Database` 和所有 primitive facade 类型保持一致；replset 不暴露独立的 `ReplsetLock` / `ReplsetEvent` 业务类型。
+- `ReplsetClient` 的 retry、leader 切换和 pending wakeup 必须封装在发送命令层，primitive 逻辑只感知普通 `LockCommandResult`。
 
 ### 13.2 状态
 

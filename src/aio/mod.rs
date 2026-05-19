@@ -10,4 +10,4 @@ pub use primitives::{
     Event, GroupEvent, Lock, LockGuard, MaxConcurrentFlow, PriorityLock, ReadWriteLock,
     ReentrantLock, Semaphore, TokenBucketFlow, TreeLock,
 };
-pub use replset::ReplsetClient;
+pub use replset::{ReplsetClient, ReplsetLock};
