@@ -1,5 +1,61 @@
 # ruslock Architecture Draft from jaslock
 
+## Connection Auto-Reconnect Update (2026-05-20)
+
+This section records the Java `SlockClient` reconnect behavior that the Rust
+driver must preserve.
+
+### Java behavior
+
+`SlockClient.open()` first calls `connect()` and completes the Init handshake.
+Only after that succeeds does it create the daemon IO thread named
+`jaslock-io-{host}:{port}`. `tryOpen()` differs only in that it still starts
+the IO thread after an initial connect failure, so the thread can keep trying
+to reconnect in the background.
+
+`SlockClient.run()` owns the long-lived read/reconnect lifecycle:
+
+1. It loops while `closed == false`.
+2. If the input stream is missing, it calls `reconnect()` and continues.
+3. It reads exactly one 64-byte response header at a time, then reads optional
+   Lock result extra data when the response flag says data is present.
+4. It dispatches responses by `requestId`, not by send order.
+5. Any read failure, short read, or parse-loop exception closes the current
+   socket, sleeps for the reconnect interval, and re-enters the outer loop.
+
+`reconnect()` first wakes/removes pending requests for the current single
+client when there is no other lived replset node that can own them. It then
+calls `connect()` repeatedly every 2 seconds until either a new Init handshake
+succeeds or `close()` sets `closed = true`.
+
+`close()` is the only normal stop signal. It sets `closed = true`, closes the
+socket, wakes pending waiters, closes single-client databases, and stops the
+callback executor. After this point no background reconnect attempt is allowed.
+
+### Rust behavior
+
+Both `ruslock::blocking::Connection` and `ruslock::aio::Connection` follow the
+same lifecycle:
+
+1. `open()` performs the first TCP connect and Init handshake synchronously
+   with the caller. A reader thread/task is created only after that first
+   handshake succeeds.
+2. The reader thread/task acts as a connection supervisor. It reads responses
+   until a read failure occurs, then removes the current writer, wakes pending
+   commands with an IO error, and starts reconnect attempts.
+3. Reconnect attempts reuse the same `clientId`, repeat the Init handshake, and
+   update `init_type` from the new Init response. Attempts sleep for
+   `ClientOptions::reconnect_interval` between failures.
+4. `ClientOptions::auto_reconnect = false` disables reconnect after the first
+   disconnect; the reader exits instead.
+5. `close()` sets the shared closed flag, shuts down the current writer, wakes
+   pending commands with `ClientClosed`, and prevents further reconnect loops.
+
+New commands sent while the connection is between sockets may observe
+`NotConnected` or a write IO error; they are not silently queued by the
+single-node client. `ReplsetClient` owns the higher-level pending/retry queue
+for commands that should wait for another node or a later reconnect.
+
 本文基于 `D:\workspace\github\jaslock` 当前 Java 实现整理，目标是为 `slock` 的 Rust driver 提供实现蓝图。重点覆盖命令实现、协议编解码、连接管理、database 管理和 API 接口实现。
 
 ## 1. 源码分层

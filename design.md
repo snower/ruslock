@@ -2,6 +2,8 @@
 
 > 2026-05-19 新增硬性约束：同一调用模型内，`Client` 和 `ReplsetClient` 必须实现相同抽象接口，并且业务代码能在单 IP 和多 IP 部署之间无修改切换。构造阶段可以根据程序参数选择单节点或 replset，但构造完成后必须通过同一套 client/database/primitive API 使用。
 
+> 2026-05-20 新增连接生命周期约束：`Client::open()` 必须在首次 TCP connect + Init 成功后才启动 reader 线程或 task；reader 负责断线后的自动重连，复用同一 `clientId` 并刷新 `init_type`。除非主动 `close()` 或 `auto_reconnect=false`，否则持续按 `ClientOptions::reconnect_interval` 重试。单节点 client 不静默重发已写失败或断线中的业务命令，replset 仍由自身 pending/retry 层负责重发语义。
+
 本文是在 `docs/Architecture.md` 的协议和 Java 实现梳理基础上，面向 `ruslock` 的完整 Rust 库设计。目标是实现一个兼容 `slock` 二进制协议的 Rust driver，并同时提供普通 blocking 同步调用接口和 `async/await` 异步调用接口。
 
 ## 1. 设计目标
@@ -194,7 +196,7 @@ src/
 | `blocking::ClientApi` | 同步 client 抽象接口，单节点、replset、统一 handle 都必须实现 |
 | `blocking::ClientHandle` | 运行时可替换 facade，根据节点数量持有 `Client` 或 `ReplsetClient` |
 | `blocking::Client` | 单节点同步 client facade，实现 `ClientApi` |
-| `blocking::Connection` | `std::net::TcpStream`、reader thread、writer mutex、pending map |
+| `blocking::Connection` | `std::net::TcpStream`、reader supervisor thread、writer mutex、pending map、自动重连 |
 | `blocking::ReplsetClient` | 多节点同步 client、leader 选择和 pending 重发，实现 `ClientApi` |
 | `blocking::Database` | 同步 database facade |
 | `blocking::primitives` | 同步 `Lock/Event/...` 包装器 |
@@ -206,7 +208,7 @@ src/
 | `aio::ClientApi` | 异步 client 抽象接口，单节点、replset、统一 handle 都必须实现 |
 | `aio::ClientHandle` | 运行时可替换 facade，根据节点数量持有 `Client` 或 `ReplsetClient` |
 | `aio::Client` | 单节点异步 client facade，实现 `ClientApi` |
-| `aio::ConnectionActor` | tokio task，管理连接、读写、pending map、重连 |
+| `aio::Connection` | tokio reader supervisor task，管理连接、读写、pending map、自动重连 |
 | `aio::ReplsetClient` | 多节点异步 client、leader 选择和 pending 重发，实现 `ClientApi` |
 | `aio::Database` | 异步 database facade |
 | `aio::primitives` | 异步 `Lock/Event/...` 包装器 |
@@ -549,16 +551,15 @@ pub async fn acquire(&mut self) -> Result<LockCommandResult> {
 ### 9.1 内部结构
 
 ```rust
-pub struct BlockingConnection {
-    address: Address,
+pub(crate) struct Connection {
+    address: String,
     options: ClientOptions,
     client_id: Mutex<Option<Id16>>,
-    init_type: AtomicU8,
-    state: AtomicConnectionState,
-    writer: Mutex<Option<BufWriter<TcpStream>>>,
-    pending: Mutex<HashMap<Id16, SyncPending>>,
-    reader_handle: Mutex<Option<JoinHandle<()>>>,
-    close_notify: Arc<AtomicBool>,
+    init_type: Arc<Mutex<u8>>,
+    writer: Arc<Mutex<Option<TcpStream>>>,
+    pending: Arc<Mutex<HashMap<Id16, SyncPending>>>,
+    closed: Arc<AtomicBool>,
+    reader_running: Arc<AtomicBool>,
 }
 
 struct SyncPending {
@@ -572,14 +573,14 @@ struct SyncPending {
 
 `Client::open()`：
 
-1. 如果 state 已是 `Connected`，直接返回。
-2. 建立 `TcpStream`。
-3. 设置 `nodelay/keepalive`。
-4. 写 InitCommand，读取 InitCommandResult。
-5. 校验 init result。
-6. 保存 writer。
-7. 启动 reader thread。
-8. state 置为 `Connected`。
+1. 如果 reader supervisor 已运行，直接返回。
+2. 清除 closed 标记。
+3. 建立 `TcpStream`。
+4. 设置 `nodelay/keepalive`。
+5. 写 InitCommand，读取 InitCommandResult。
+6. 校验 init result，并记录返回的 `init_type`。
+7. 保存 writer。
+8. 在首次连接和 Init 成功后启动 reader supervisor thread。
 
 `Client::connect(addr)` 是 `Client::new(addr).open()?` 的便捷方法。
 
@@ -604,25 +605,28 @@ map result
 
 ### 9.4 reader thread
 
-reader thread 循环：
+reader supervisor thread 循环：
 
-1. `read_exact(64)`。
+1. 从当前 reader stream 执行 `read_exact(64)`。
 2. `protocol::decode_header()`。
 3. 如果是 lock result 且有 data，继续读 4 字节长度和 payload。
 4. 根据 requestId 从 pending map 移除 waiter。
 5. 发送 result 给 waiter。
 6. 读失败时：
-   - 清空或保留 pending，取决于是否由 replset 接管。
    - 关闭 writer。
+   - 唤醒当前 pending，使调用方得到 IO/NotConnected 类错误。
    - 如果 `auto_reconnect` 且 client 未 close，进入 reconnect loop。
+   - reconnect 成功后保存新 writer、刷新 `init_type`，并继续读新 stream。
 
 ### 9.5 reconnect
 
 单节点 client 的 reconnect 策略：
 
 - 每 `reconnect_interval` 重试。
-- reconnect 成功后发送 init。
-- 对单节点未完成请求，默认返回 `NotConnected` 或 `ClientClosed`，不自动重发，避免重复执行风险。
+- reconnect 成功后使用同一 `clientId` 发送 init。
+- Init 成功后刷新本地 `init_type`，使 leader 等连接状态与服务端最新返回保持一致。
+- `auto_reconnect=false` 或 `close()` 后停止 supervisor，不再继续重连。
+- 对单节点未完成请求，默认返回 IO/`NotConnected` 或 `ClientClosed`，不自动重发，避免重复执行风险。
 - 对 replset 子 client，未完成请求交给 replset pending 逻辑判断是否重发。
 
 ## 10. async 传输逻辑
@@ -630,72 +634,61 @@ reader thread 循环：
 ### 10.1 内部结构
 
 ```rust
-pub struct AsyncConnection {
-    tx: tokio::sync::mpsc::Sender<ClientOp>,
-    state: Arc<AsyncConnectionState>,
-}
-
-enum ClientOp {
-    Send {
-        command: Command,
-        response: tokio::sync::oneshot::Sender<Result<CommandResult>>,
-    },
-    Write {
-        command: Command,
-        response: tokio::sync::oneshot::Sender<Result<()>>,
-    },
-    Close,
+pub(crate) struct Connection {
+    address: String,
+    options: ClientOptions,
+    client_id: Mutex<Option<Id16>>,
+    init_type: Arc<Mutex<u8>>,
+    writer: Arc<AsyncMutex<Option<OwnedWriteHalf>>>,
+    pending: Arc<AsyncMutex<HashMap<Id16, PendingSender>>>,
+    closed: Arc<AtomicBool>,
+    reader_running: Arc<AtomicBool>,
 }
 ```
 
-### 10.2 ConnectionActor
+### 10.2 Connection reader supervisor
 
-Async client 使用一个 connection actor 管理所有网络状态：
+Async client 使用 `aio::Connection` 和 reader supervisor task 管理网络状态：
 
 ```text
 Client facade
-  -> mpsc<ClientOp>
-    -> ConnectionActor
-       - current writer
-       - pending HashMap<Id16, AsyncPending>
-       - reader task result channel
-       - reconnect timer
+  -> aio::Connection
+     - current writer
+     - pending HashMap<Id16, PendingSender>
+     - reader supervisor task
+     - reconnect timer
 ```
 
-actor 生命周期：
+async 连接生命周期：
 
-1. `connect_and_init()`。
-2. split stream。
-3. spawn reader task，reader 解码后把 `DecodedFrame` 发回 actor。
-4. `tokio::select!` 同时处理：
-   - 用户发送命令。
-   - reader 解码结果。
-   - reader 失败。
-   - pending timeout。
-   - close。
-5. 连接失败时进入 reconnect loop。
+1. `open().await` 先执行 `connect_once()`，完成 TCP connect + Init。
+2. Init 成功后保存 writer、刷新 `init_type`。
+3. 只有首次连接成功后才 spawn reader supervisor task。
+4. reader task 持有当前 reader stream，循环解码响应并按 requestId 唤醒 pending。
+5. reader 失败时关闭 writer、唤醒 pending；如果 `auto_reconnect` 且未 close，按 `reconnect_interval` 重试。
+6. reconnect 成功后继续使用同一 `clientId` Init，保存新 writer 并继续读取。
+7. `close().await` 标记 closed，关闭 writer，停止后续重连，并唤醒所有 pending。
 
 ### 10.3 send_command
 
 异步 `send_command`：
 
 1. facade 创建 `oneshot`。
-2. 发送 `ClientOp::Send` 到 actor。
-3. actor 编码 command，插入 pending，写入 writer。
+2. connection 编码 command，并在写入前插入 pending。
+3. connection 锁定 writer，写入 header + extra 并 flush。
 4. facade `await` oneshot，并叠加 `tokio::time::timeout`。
-5. 超时后发送 cancel 或让 actor 根据 requestId 删除 pending。
+5. 超时或 future 被 drop 时通过 pending cleanup 按 requestId 删除 pending。
 
-actor 内也维护 deadline，避免 facade 被 drop 后 pending 泄漏。
+connection 的 pending cleanup 必须避免 facade 被 drop 后 pending 泄漏。
 
 ### 10.4 async close
 
 `Client::close().await`：
 
-- 向 actor 发送 `Close`。
-- actor 标记 closed。
-- 关闭 socket。
+- 标记 closed。
+- 关闭 writer/socket。
 - 对全部 pending 返回 `ClientClosed`。
-- 停止 reader task。
+- 停止 reader supervisor task，且不再触发重连。
 
 `Drop` 只做 best-effort close signal，不等待网络释放。
 
@@ -1006,16 +999,17 @@ Mutex<Vec<Option<Database>>>
 
 - `Client`, `Database` 可 clone，内部是 `Arc`。
 - `send_command` 可多线程并发调用。
-- 写 socket 由 `Mutex<BufWriter<TcpStream>>` 串行化。
-- 读 socket 由唯一 reader thread 负责。
+- 写 socket 由 `Mutex<Option<TcpStream>>` 串行化。
+- 读 socket 由唯一 reader supervisor thread 负责，并负责断线重连。
 - pending map 用 `Mutex<HashMap<Id16, SyncPending>>`。
 - 每个高级 primitive 是否 `Send` 取决于内部是否保存可变 `current_data`；推荐 primitive 本身不实现内部锁，用户需要 `&mut self` 调用。
 
 ### 16.2 async
 
-- `Client`, `Database` 可 clone，内部是 `Arc` + `mpsc`。
-- 所有网络 IO 在 actor 中串行处理。
-- facade 方法只发送 operation 并 await response。
+- `Client`, `Database` 可 clone，内部是 `Arc`。
+- 写 socket 由 `tokio::sync::Mutex<Option<OwnedWriteHalf>>` 串行化。
+- 读 socket 由唯一 reader supervisor task 负责，并负责断线重连。
+- facade 方法直接调用 connection 并 await response。
 - 高级 primitive 使用 `&mut self` 更新 `current_data`，避免额外 mutex。
 
 ## 17. 超时策略
@@ -1039,7 +1033,7 @@ Mutex<Vec<Option<Database>>>
 3. 关闭 socket。
 4. 清空 pending，并让等待者收到 `ClientClosed`。
 5. blocking 等 reader thread 退出。
-6. async 停止 actor 和 reader task。
+6. async 停止 reader supervisor task。
 
 `Drop`：
 
@@ -1085,6 +1079,7 @@ Mutex<Vec<Option<Database>>>
 - ping requestId 能匹配响应。
 - extra data 响应能读取完整 payload。
 - 短读/断线会触发错误和 pending 清理。
+- reader thread/task 会在断线后自动重连，并在 `close()` 后停止重试。
 - command timeout 后 pending map 清理。
 
 ### 20.3 blocking 集成测试
@@ -1104,7 +1099,7 @@ Mutex<Vec<Option<Database>>>
 与 blocking 覆盖相同语义，额外验证：
 
 - 多 task 并发 acquire。
-- timeout future cancellation 后 actor pending 清理。
+- timeout future cancellation 后 connection pending 清理。
 - close 后所有 pending await 返回 `ClientClosed`。
 
 ### 20.5 replset 集成测试
@@ -1188,14 +1183,14 @@ tests/
 ### M2: blocking 单节点
 
 - Client open/init/close。
-- reader thread。
+- reader supervisor thread 和自动重连。
 - send/write/ping。
 - blocking Database 和 Lock。
 - mock server 测试。
 
 ### M3: async 单节点
 
-- ConnectionActor。
+- async connection reader supervisor task 和自动重连。
 - async Client open/close/send/ping。
 - async Database 和 Lock。
 - cancellation 和 timeout 测试。

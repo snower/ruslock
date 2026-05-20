@@ -52,10 +52,11 @@ pub(crate) struct Connection {
     address: String,
     options: ClientOptions,
     client_id: Mutex<Option<Id16>>,
-    init_type: Mutex<u8>,
+    init_type: Arc<Mutex<u8>>,
     writer: Arc<AsyncMutex<Option<OwnedWriteHalf>>>,
     pending: Arc<AsyncMutex<HashMap<Id16, PendingSender>>>,
     closed: Arc<AtomicBool>,
+    reader_running: Arc<AtomicBool>,
 }
 
 impl Connection {
@@ -64,55 +65,35 @@ impl Connection {
             address,
             options,
             client_id: Mutex::new(None),
-            init_type: Mutex::new(0),
+            init_type: Arc::new(Mutex::new(0)),
             writer: Arc::new(AsyncMutex::new(None)),
             pending: Arc::new(AsyncMutex::new(HashMap::new())),
             closed: Arc::new(AtomicBool::new(false)),
+            reader_running: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub(crate) async fn open(&self) -> Result<()> {
-        if self.writer.lock().await.is_some() {
+        if self.reader_running.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
         self.closed.store(false, Ordering::SeqCst);
-        let stream = tokio::time::timeout(
-            self.options.connect_timeout,
-            TcpStream::connect(&self.address),
-        )
-        .await
-        .map_err(|_| SlockError::CommandTimeout)??;
-        stream.set_nodelay(self.options.tcp_nodelay)?;
-        let mut stream = stream;
-
         let client_id = {
             let mut guard = self.client_id.lock().expect("client id mutex poisoned");
             *guard.get_or_insert_with(Id16::new)
         };
-        let init = Command::Init(InitCommand::with_client_id(client_id)).encode()?;
-        stream.write_all(&init.header).await?;
-        if let Some(extra) = init.extra {
-            stream.write_all(&extra).await?;
+        match connect_once(&self.address, &self.options, client_id).await {
+            Ok((reader, writer, init_type)) => {
+                *self.init_type.lock().expect("init type mutex poisoned") = init_type;
+                *self.writer.lock().await = Some(writer);
+                self.spawn_reader(reader, client_id);
+                Ok(())
+            }
+            Err(err) => {
+                self.reader_running.store(false, Ordering::SeqCst);
+                Err(err)
+            }
         }
-        stream.flush().await?;
-
-        let mut response_header = [0u8; HEADER_LEN];
-        stream.read_exact(&mut response_header).await?;
-        let response = decode_response(&response_header, None)?;
-        if response.result_code() != COMMAND_RESULT_SUCCED {
-            return Err(SlockError::Server {
-                result: response.result_code(),
-            });
-        }
-        let CommandResult::Init(result) = response else {
-            return Err(SlockError::Protocol("expected init result".to_string()));
-        };
-        *self.init_type.lock().expect("init type mutex poisoned") = result.init_type;
-
-        let (reader, writer) = stream.into_split();
-        *self.writer.lock().await = Some(writer);
-        self.spawn_reader(reader);
-        Ok(())
     }
 
     pub(crate) async fn close(&self) {
@@ -162,6 +143,7 @@ impl Connection {
 
         if let Err(err) = write_result {
             self.pending.lock().await.remove(&encoded.request_id);
+            close_writer(&self.writer).await;
             cleanup.disarm();
             return Err(SlockError::Io(err));
         }
@@ -184,49 +166,96 @@ impl Connection {
         }
     }
 
-    fn spawn_reader(&self, reader: OwnedReadHalf) {
+    fn spawn_reader(&self, reader: OwnedReadHalf, client_id: Id16) {
+        let address = self.address.clone();
+        let options = self.options.clone();
+        let init_type = Arc::clone(&self.init_type);
         let pending = Arc::clone(&self.pending);
         let writer = Arc::clone(&self.writer);
         let closed = Arc::clone(&self.closed);
+        let reader_running = Arc::clone(&self.reader_running);
         tokio::spawn(async move {
-            read_loop(reader, pending, writer, closed).await;
+            let mut reader = Some(reader);
+            while !closed.load(Ordering::SeqCst) {
+                if let Some(mut current_reader) = reader.take() {
+                    if let Err(err) = read_loop(&mut current_reader, &pending, &closed).await {
+                        close_writer(&writer).await;
+                        if !closed.load(Ordering::SeqCst) {
+                            wake_all_io(&pending, err).await;
+                        }
+                    }
+                }
+
+                if !options.auto_reconnect || closed.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                loop {
+                    if closed.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    match connect_once(&address, &options, client_id).await {
+                        Ok((new_reader, new_writer, new_init_type)) => {
+                            *init_type.lock().expect("init type mutex poisoned") = new_init_type;
+                            *writer.lock().await = Some(new_writer);
+                            reader = Some(new_reader);
+                            break;
+                        }
+                        Err(_) => tokio::time::sleep(options.reconnect_interval).await,
+                    }
+                }
+            }
+            close_writer(&writer).await;
+            reader_running.store(false, Ordering::SeqCst);
         });
     }
 }
 
+async fn connect_once(
+    address: &str,
+    options: &ClientOptions,
+    client_id: Id16,
+) -> Result<(OwnedReadHalf, OwnedWriteHalf, u8)> {
+    let stream = tokio::time::timeout(options.connect_timeout, TcpStream::connect(address))
+        .await
+        .map_err(|_| SlockError::CommandTimeout)??;
+    stream.set_nodelay(options.tcp_nodelay)?;
+    let mut stream = stream;
+
+    let init = Command::Init(InitCommand::with_client_id(client_id)).encode()?;
+    stream.write_all(&init.header).await?;
+    if let Some(extra) = init.extra {
+        stream.write_all(&extra).await?;
+    }
+    stream.flush().await?;
+
+    let mut response_header = [0u8; HEADER_LEN];
+    stream.read_exact(&mut response_header).await?;
+    let response = decode_response(&response_header, None)?;
+    if response.result_code() != COMMAND_RESULT_SUCCED {
+        return Err(SlockError::Server {
+            result: response.result_code(),
+        });
+    }
+    let CommandResult::Init(result) = response else {
+        return Err(SlockError::Protocol("expected init result".to_string()));
+    };
+
+    let (reader, writer) = stream.into_split();
+    Ok((reader, writer, result.init_type))
+}
+
 async fn read_loop(
-    mut reader: OwnedReadHalf,
-    pending: Arc<AsyncMutex<HashMap<Id16, PendingSender>>>,
-    writer: Arc<AsyncMutex<Option<OwnedWriteHalf>>>,
-    closed: Arc<AtomicBool>,
-) {
-    loop {
+    reader: &mut OwnedReadHalf,
+    pending: &Arc<AsyncMutex<HashMap<Id16, PendingSender>>>,
+    closed: &Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    while !closed.load(Ordering::SeqCst) {
         let mut header = [0u8; HEADER_LEN];
-        if let Err(err) = reader.read_exact(&mut header).await {
-            if !closed.load(Ordering::SeqCst) {
-                let mut pending = pending.lock().await;
-                for (_, tx) in pending.drain() {
-                    let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
-                        err.kind(),
-                        err.to_string(),
-                    ))));
-                }
-                let _ = writer.lock().await.take();
-            }
-            break;
-        }
+        reader.read_exact(&mut header).await?;
 
         let data = if response_has_extra_data(&header) {
-            match read_extra_data(&mut reader).await {
-                Ok(data) => Some(data),
-                Err(_) => {
-                    let mut pending = pending.lock().await;
-                    for (_, tx) in pending.drain() {
-                        let _ = tx.send(Err(SlockError::ClientClosed));
-                    }
-                    break;
-                }
-            }
+            Some(read_extra_data(reader).await?)
         } else {
             None
         };
@@ -247,9 +276,26 @@ async fn read_loop(
             }
         }
     }
+    Ok(())
 }
 
-async fn read_extra_data(reader: &mut OwnedReadHalf) -> Result<Vec<u8>> {
+async fn close_writer(writer: &Arc<AsyncMutex<Option<OwnedWriteHalf>>>) {
+    if let Some(mut writer) = writer.lock().await.take() {
+        let _ = writer.shutdown().await;
+    }
+}
+
+async fn wake_all_io(pending: &Arc<AsyncMutex<HashMap<Id16, PendingSender>>>, err: std::io::Error) {
+    let mut pending = pending.lock().await;
+    for (_, tx) in pending.drain() {
+        let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
+            err.kind(),
+            err.to_string(),
+        ))));
+    }
+}
+
+async fn read_extra_data(reader: &mut OwnedReadHalf) -> std::io::Result<Vec<u8>> {
     let mut len_bytes = [0u8; 4];
     reader.read_exact(&mut len_bytes).await?;
     let len = u32::from_le_bytes(len_bytes) as usize;

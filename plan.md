@@ -4,7 +4,7 @@
 
 **Goal:** Build a Rust `slock` client library that provides both `ruslock::blocking` synchronous APIs and `ruslock::aio` async/await APIs, with behavior verified against the Java `jaslock` implementation.
 
-**Architecture:** Reuse one shared protocol/data/primitive-logic core, then implement separate blocking and async transport layers. Blocking uses `std::net::TcpStream` plus a reader thread; async uses tokio tasks and a connection actor.
+**Architecture:** Reuse one shared protocol/data/primitive-logic core, then implement separate blocking and async transport layers. Blocking uses `std::net::TcpStream` plus a reader supervisor thread; async uses tokio reader supervisor tasks. Both transports connect/init before starting the reader and then auto-reconnect until explicit close.
 
 **Tech Stack:** Rust, Cargo, tokio, bitflags, md-5, rand, socket2, thiserror, local `slock` service for integration/parity tests.
 
@@ -18,13 +18,15 @@ The repository currently contains design documents but no Rust crate. This plan 
 D:\workspace\github\jaslock\src\test\java\io\github\snower\jaslock\ClientTest.java
 ```
 
-The implementation must preserve the protocol details documented in `docs/Architecture.md` and `design.md`: 64-byte command frames, little-endian numeric fields, LockData framing, requestId response matching, key normalization, timeout/expired flags, and replset retry behavior.
+The implementation must preserve the protocol details documented in `docs/Architecture.md` and `design.md`: 64-byte command frames, little-endian numeric fields, LockData framing, requestId response matching, key normalization, timeout/expired flags, single-connection auto-reconnect behavior, and replset retry behavior.
 
 New requirement added on 2026-05-19: `Client` and `ReplsetClient` must implement the same public abstraction inside each calling model, so business code can switch between single IP and multi-IP deployment by changing construction/configuration only. After construction, usage must be identical through `ClientApi`/`ClientHandle`, shared `Database`, and shared primitive facade types.
 
+New requirement added on 2026-05-20: `Client::open()` must start the reader only after the first TCP connect + Init succeeds. After that, the reader thread/task owns disconnect detection and automatic reconnect, reuses the same `clientId`, refreshes `init_type`, and keeps retrying by `ClientOptions::reconnect_interval` until `close()` or `auto_reconnect=false`. Single-node clients do not silently replay failed in-flight business commands; replset retry remains handled by the replset layer.
+
 ## Execution Status
 
-Last updated: 2026-05-19.
+Last updated: 2026-05-20.
 
 Completed:
 
@@ -33,9 +35,9 @@ Completed:
 - [x] Task 2 command encode/decode is implemented for Init, Ping, Lock, Unlock, response headers, and Lock extra-data framing.
 - [x] Task 3 LockData core is implemented for set, unset, incr, append, shift, execute, pipeline, push, pop, and LockResultData accessors.
 - [x] Task 3 LockData tests now explicitly cover all command variants and Java property-offset parsing.
-- [x] Task 4 blocking single client is implemented with TCP connect/init, reader thread, pending request matching, timeout cleanup, close wakeup, ping, database selection, and root lock factory.
+- [x] Task 4 blocking single client is implemented with TCP connect/init, reader supervisor thread, automatic reconnect, pending request matching, timeout cleanup, close wakeup, ping, database selection, and root lock factory.
 - [x] Task 5 blocking Lock API is implemented with acquire/release/show/update/release_head/release_head_to_lock_wait/current_data and lock result error mapping.
-- [x] Task 6 async single client is implemented with tokio TCP connect/init, reader task, pending request matching, timeout cleanup, close wakeup, ping, database selection, and root lock factory.
+- [x] Task 6 async single client is implemented with tokio TCP connect/init, reader supervisor task, automatic reconnect, pending request matching, timeout cleanup, close wakeup, ping, database selection, and root lock factory.
 - [x] Task 6 async cancellation cleanup is implemented and covered by tokio mock transport tests.
 - [x] Task 7 async explicit `LockGuard` API is implemented; release is explicit and awaited.
 - [x] Task 7 async lock error mapping tests now mirror the blocking mappings for locked, unlocked, unown, and timeout results.
@@ -56,6 +58,7 @@ Completed:
 - [x] Task 12 Java parity now covers LockData execute/pipeline live side effects, TreeLock recursive leaf/child helper behavior, MaxConcurrentFlow millisecond expiry, and the 1000-task async PriorityLock callback stress.
 - [x] Task 13 README/rustdoc quickstarts, feature flags, LockData examples, and local slock test notes are documented.
 - [x] Task 13 README now documents `ClientHandle` runtime selection for single-node versus replset deployments.
+- [x] Task 13 Architecture/design docs now document Java-compatible single-connection auto-reconnect after reader failure.
 
 Partially completed and still in progress:
 
@@ -199,12 +202,13 @@ Latest completed verification:
 - Test: blocking mock transport tests
 
 - [x] Implement `blocking::Client` with `new`, `with_options`, `connect`, `open`, `close`, `ping`, `select_database`, and root `lock`.
-- [x] Implement `blocking::Connection` using `std::net::TcpStream`, a writer mutex, pending request map, and one reader thread.
-- [x] Ensure `open()` connects, sets TCP options via `socket2`, sends Init, reads Init result, and starts the reader thread.
+- [x] Implement `blocking::Connection` using `std::net::TcpStream`, a writer mutex, pending request map, and one reader supervisor thread.
+- [x] Ensure `open()` connects, sets TCP options via `socket2`, sends Init, reads Init result, and only then starts the reader supervisor thread.
 - [x] Ensure `send_command()` inserts pending before writing, writes header + optional extra, flushes, waits using Java-compatible timeout, and removes pending on timeout.
+- [x] Ensure the reader supervisor reconnects after disconnect/read failure, reuses the same clientId, refreshes init_type, and stops retrying after `close()`.
 - [x] Ensure `close()` stops reconnect, closes socket, and wakes pending waiters with `ClientClosed`.
 - [x] Implement `blocking::Database` with db id and default flag storage.
-- [x] Add mock-server tests for Init-first behavior, ping requestId matching, timeout cleanup, and close cleanup.
+- [x] Add mock-server tests for Init-first behavior, ping requestId matching, timeout cleanup, close cleanup, and reconnect-until-close behavior.
 - [x] Run `cargo test --features blocking --no-default-features`.
 - [x] Commit blocking transport. Superseded by final implementation commit.
 
@@ -247,10 +251,11 @@ Latest completed verification:
 - Test: tokio mock transport tests
 
 - [x] Implement `aio::Client` with `new`, `with_options`, `connect`, `open`, `close`, `ping`, `select_database`, and root `lock`.
-- [x] Implement tokio connection task/actor-style state that owns connection state, writer, pending map, reader task, reconnect handling, and close signal.
+- [x] Implement tokio connection state that owns the writer, pending map, reader supervisor task, reconnect handling, and close signal.
 - [x] Connection task must handle command ops, decoded frames, timeout cleanup, reader failure, reconnect, and close.
+- [x] Ensure async reconnect reuses the same clientId, refreshes init_type, wakes current pending commands on reader failure, and stops retrying after `close().await`.
 - [x] `Client::close().await` must stop reconnect and wake all pending operations.
-- [x] Add tokio mock-server tests for Init/Ping, requestId response matching, timeout cleanup, cancellation cleanup, and close cleanup.
+- [x] Add tokio mock-server tests for Init/Ping, requestId response matching, timeout cleanup, cancellation cleanup, close cleanup, and reconnect-until-close behavior.
 - [x] Run `cargo test --features aio --no-default-features`.
 - [x] Commit async transport. Superseded by final implementation commit.
 
@@ -428,6 +433,9 @@ Latest completed verification:
 
 **Files:**
 - Modify: `README.md`
+- Modify: `docs/Architecture.md`
+- Modify: `design.md`
+- Modify: `plan.md`
 - Modify rustdoc comments in public modules
 
 - [x] Add blocking quickstart.
@@ -438,6 +446,7 @@ Latest completed verification:
 - [x] Document feature flags.
 - [x] Document local slock requirement for integration/parity tests.
 - [x] Document why blocking transport does not wrap async runtime.
+- [x] Document `Client::open()` reader startup and auto-reconnect lifecycle against the Java implementation.
 - [x] Run `cargo test --doc --all-features`.
 - [x] Commit docs cleanup. Superseded by final implementation commit.
 
@@ -459,6 +468,7 @@ Completeness review:
 - Covers the requested root `plan.md` handoff.
 - Covers crate scaffold, shared protocol, LockData, blocking transport, async transport, database factories, all synchronization primitives, replset, Java parity tests, and docs.
 - Covers the 2026-05-19 interchangeable-client requirement through a dedicated `ClientApi`/`ClientHandle` task for both blocking and async APIs.
+- Covers the 2026-05-20 Java-compatible connection lifecycle requirement: reader starts only after initial connect/init success, then reconnects until explicit close.
 - Covers the full Java `ClientTest.java` test list, including benchmark as ignored-by-default.
 - Covers both unit tests and integration/parity tests.
 - Covers final verification commands.
@@ -467,6 +477,7 @@ Reasonableness review:
 
 - The milestone order is reasonable: protocol first, then blocking single client, then async, then primitives, then replset and parity.
 - The plan avoids using an async runtime under blocking APIs, matching `design.md`.
+- The reconnect behavior is assigned to the transport layer while command replay semantics stay with replset, avoiding hidden duplicate execution in single-node clients.
 - The scope is large for one uninterrupted implementation session, so execution should proceed task-by-task with verification after each commit.
 - The only external runtime dependency is a local `slock` service for integration/parity tests; tests that require it should skip or be explicitly gated when the service is unavailable.
 
@@ -474,5 +485,6 @@ Assumptions:
 
 - `replset` is part of v1 and not deferred.
 - `Client` and `ReplsetClient` must remain business-code interchangeable through the same abstraction; runtime construction may vary by single or multiple endpoints, but downstream usage must not vary.
+- Single-node automatic reconnect restores the socket/session but does not silently replay in-flight lock commands.
 - Tokio is the async runtime.
 - Java compatibility is defined by `docs/Architecture.md`, `design.md`, and `D:\workspace\github\jaslock\src\test\java\io\github\snower\jaslock\ClientTest.java`.
