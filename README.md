@@ -111,8 +111,8 @@ assert_eq!(encoded[4], ruslock::protocol::constants::LOCK_DATA_COMMAND_TYPE_PIPE
 
 - `blocking`: synchronous client facade.
 - `aio`: async tokio client facade.
-- `replset`: replset facade.
-- default: `["blocking", "aio", "replset"]`.
+- Replset support is included with each facade: `blocking::ReplsetClient` is available with `blocking`, and `aio::ReplsetClient` is available with `aio`.
+- default: `["blocking", "aio"]`.
 
 ## Tests
 

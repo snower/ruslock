@@ -217,10 +217,9 @@ src/
 
 ```toml
 [features]
-default = ["blocking", "aio", "replset"]
+default = ["blocking", "aio"]
 blocking = []
 aio = ["dep:tokio"]
-replset = []
 
 [dependencies]
 bitflags = "2"
@@ -228,13 +227,14 @@ md-5 = "0.10"
 rand = "0.8"
 socket2 = "0.5"
 thiserror = "1"
-tokio = { version = "1", optional = true, features = ["net", "sync", "time", "rt", "macros"] }
+tokio = { version = "1", optional = true, features = ["net", "sync", "time", "rt", "macros", "io-util"] }
 ```
 
 说明：
 
 - 默认同时启用 blocking 和 aio，满足“双接口”要求。
 - `aio` 仅在异步接口启用时引入 tokio。
+- replset 不是独立 feature：`blocking::ReplsetClient` 随 `blocking` 编译，`aio::ReplsetClient` 随 `aio` 编译，避免业务在单节点和多节点部署之间切换时还需要额外 Cargo feature。
 - 协议层不依赖 tokio。
 - `socket2` 用于跨平台设置 TCP keepalive。
 - 第一版尽量不用 `async-trait`，通过同步/异步 facade 分离避免 trait object 复杂度。

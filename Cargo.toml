@@ -7,10 +7,9 @@ description = "Rust client for slock"
 repository = "https://github.com/snower/ruslock"
 
 [features]
-default = ["blocking", "aio", "replset"]
+default = ["blocking", "aio"]
 blocking = []
 aio = ["dep:tokio"]
-replset = []
 
 [dependencies]
 bitflags = "2"

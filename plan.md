@@ -24,6 +24,8 @@ New requirement added on 2026-05-19: `Client` and `ReplsetClient` must implement
 
 New requirement added on 2026-05-20: `Client::open()` must start the reader only after the first TCP connect + Init succeeds. After that, the reader thread/task owns disconnect detection and automatic reconnect, reuses the same `clientId`, refreshes `init_type`, and keeps retrying by `ClientOptions::reconnect_interval` until `close()` or `auto_reconnect=false`. Single-node clients do not silently replay failed in-flight business commands; replset retry remains handled by the replset layer.
 
+New requirement added on 2026-05-20: replset support must not be exposed as a separate Cargo feature. `blocking::ReplsetClient` is compiled with `blocking`, and `aio::ReplsetClient` is compiled with `aio`; default features are only `["blocking", "aio"]`.
+
 ## Execution Status
 
 Last updated: 2026-05-20.
@@ -59,6 +61,7 @@ Completed:
 - [x] Task 13 README/rustdoc quickstarts, feature flags, LockData examples, and local slock test notes are documented.
 - [x] Task 13 README now documents `ClientHandle` runtime selection for single-node versus replset deployments.
 - [x] Task 13 Architecture/design docs now document Java-compatible single-connection auto-reconnect after reader failure.
+- [x] Task 13 feature cleanup removes the standalone `replset` Cargo feature and makes replset tests run under `blocking`/`aio`.
 
 Partially completed and still in progress:
 
@@ -83,6 +86,10 @@ Latest completed verification:
 - [x] `cargo test --test primitive_commands --features aio --no-default-features`
 - [x] `cargo test --all-features --test primitive_state_mock`
 - [x] `cargo test --test replset_mock --all-features`
+- [x] `cargo test --no-default-features --features blocking --test replset_mock`
+- [x] `cargo test --no-default-features --features aio --test replset_mock`
+- [x] `cargo test --no-default-features --features blocking --test java_parity_replset`
+- [x] `cargo test --no-default-features --features aio --test java_parity_replset`
 - [x] `SLOCK_TEST_HOST=127.0.0.1 SLOCK_TEST_PORT=5658 cargo test --all-features --test java_parity_blocking --test java_parity_async --test java_parity_replset --test java_parity_lock_data --test java_parity_flow_tree`
 - [x] `cargo test --all-features --test java_parity_benchmark -- --ignored`
 
@@ -114,11 +121,10 @@ Latest completed verification:
 - Create directories: `src/protocol/`, `src/data/`, `src/primitive/`, `src/blocking/`, `src/aio/`
 
 - [x] Create `Cargo.toml` with package metadata and features:
-  - `default = ["blocking", "aio", "replset"]`
+  - `default = ["blocking", "aio"]`
   - `blocking = []`
   - `aio = ["dep:tokio"]`
-  - `replset = []`
-  - dependencies: `bitflags`, `md-5`, `rand`, `socket2`, `thiserror`, optional `tokio` with `net`, `sync`, `time`, `rt`, `macros`.
+  - dependencies: `bitflags`, `md-5`, `rand`, `socket2`, `thiserror`, optional `tokio` with `net`, `sync`, `time`, `rt`, `macros`, `io-util`.
 - [x] Create module skeletons and public exports in `src/lib.rs`.
 - [x] Add empty module files so `cargo check --all-features` reaches dependency resolution.
 - [x] Run `cargo check --all-features`.
@@ -447,6 +453,7 @@ Latest completed verification:
 - [x] Document local slock requirement for integration/parity tests.
 - [x] Document why blocking transport does not wrap async runtime.
 - [x] Document `Client::open()` reader startup and auto-reconnect lifecycle against the Java implementation.
+- [x] Document that replset is included with `blocking`/`aio` and is not a standalone feature.
 - [x] Run `cargo test --doc --all-features`.
 - [x] Commit docs cleanup. Superseded by final implementation commit.
 
@@ -469,6 +476,7 @@ Completeness review:
 - Covers crate scaffold, shared protocol, LockData, blocking transport, async transport, database factories, all synchronization primitives, replset, Java parity tests, and docs.
 - Covers the 2026-05-19 interchangeable-client requirement through a dedicated `ClientApi`/`ClientHandle` task for both blocking and async APIs.
 - Covers the 2026-05-20 Java-compatible connection lifecycle requirement: reader starts only after initial connect/init success, then reconnects until explicit close.
+- Covers the 2026-05-20 feature cleanup requirement: replset is part of the selected calling model, not its own feature.
 - Covers the full Java `ClientTest.java` test list, including benchmark as ignored-by-default.
 - Covers both unit tests and integration/parity tests.
 - Covers final verification commands.

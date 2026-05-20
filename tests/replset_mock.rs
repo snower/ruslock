@@ -1,9 +1,13 @@
-#![cfg(feature = "replset")]
+#![cfg(any(feature = "blocking", feature = "aio"))]
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::thread;
 use std::time::Duration;
+
+#[cfg(feature = "blocking")]
+use std::io::{Read, Write};
+#[cfg(feature = "blocking")]
+use std::net::{TcpListener, TcpStream};
+#[cfg(feature = "blocking")]
+use std::thread;
 
 use ruslock::protocol::constants::*;
 use ruslock::ClientOptions;
