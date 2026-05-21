@@ -56,6 +56,73 @@ New commands sent while the connection is between sockets may observe
 single-node client. `ReplsetClient` owns the higher-level pending/retry queue
 for commands that should wait for another node or a later reconnect.
 
+## Callback / Sans-IO Update (2026-05-21)
+
+`ruslock::callback` is a third facade for schedulers that must own TCP
+themselves. It shares command encoding, requestId matching, LockData parsing,
+and primitive command construction with the blocking and async facades, but it
+does not open sockets, spawn reader threads, or create timers.
+
+### Buffer ownership
+
+The public buffers are split by capability:
+
+| Buffer | Caller capability | Client capability |
+| --- | --- | --- |
+| `ReaderBuffer` | `push(bytes)`, `clear()` | consume parsed response frames |
+| `WriterBuffer` | `drain()`, `drain_into(out)`, `clear()` | append Init and command frames |
+
+The caller must never be able to drain `ReaderBuffer` or push arbitrary bytes
+into `WriterBuffer`. This preserves half-packet state and prevents non-protocol
+bytes from being mixed into outgoing frames.
+
+### Init and command flow
+
+1. Caller creates `callback::Client`.
+2. Caller gets `ReaderBuffer` and `WriterBuffer`.
+3. Caller calls `handle_init()`.
+4. Client writes one 64-byte Init frame into `WriterBuffer` and returns
+   `Ok(false)`.
+5. Caller drains `WriterBuffer`, sends those bytes through its own socket, and
+   pushes received bytes into `ReaderBuffer`.
+6. Caller calls `handle_init()` again until it returns `Ok(true)`.
+7. Business methods such as `lock.acquire(callback)` encode commands, insert
+   pending callbacks by requestId, append frames to `WriterBuffer`, and return
+   `RequestHandle`.
+8. Caller sends drained command bytes, receives response bytes, pushes them into
+   `ReaderBuffer`, and calls `handle_read()`.
+
+`handle_read()` parses all complete frames in arrival order. User callbacks are
+invoked only after the pending entry has been removed and primitive local state
+has been updated, so callbacks may issue another command on the same client.
+
+### Extra data framing
+
+Lock result extra data follows the Java layout exactly:
+
+1. Read the 4-byte little-endian payload length.
+2. Reject lengths greater than `ClientOptions::max_frame_size`.
+3. Wait until the full payload is available.
+4. Build `LockResultData` raw bytes with length `payload_len + 4`, leave
+   `raw[0..4]` as zeroes, and copy payload into `raw[4..]`.
+
+This keeps Java's `stage/type` at `raw[4]` and `commandFlag` at `raw[5]`.
+
+### Disconnect, timeout, and cancellation
+
+- `handle_disconnect()` clears both buffers, fails all pending callbacks with
+  `ClientDisconnected`, clears cancelled request ids, moves to `Disconnected`,
+  and returns whether the caller should reconnect. Re-init after disconnect
+  reuses the same `clientId`.
+- `next_deadline()` returns the earliest pending command deadline. The deadline
+  is `encoded.timeout.low_16_seconds + ClientOptions::command_timeout_grace`,
+  including timeout `0`.
+- `handle_timeout(now)` removes expired pending callbacks and completes them
+  with `CommandTimeout` or primitive-specific mapping.
+- `RequestHandle::cancel()` removes the current pending request and records its
+  requestId as cancelled. Already written bytes are not retracted; a late
+  response for a cancelled id is ignored.
+
 本文基于 `D:\workspace\github\jaslock` 当前 Java 实现整理，目标是为 `slock` 的 Rust driver 提供实现蓝图。重点覆盖命令实现、协议编解码、连接管理、database 管理和 API 接口实现。
 
 ## 1. 源码分层

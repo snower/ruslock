@@ -2,10 +2,11 @@
 
 Rust client for `slock`.
 
-The crate exposes two independent APIs:
+The crate exposes three independent APIs:
 
 - `ruslock::blocking` uses `std::net::TcpStream` and a reader thread.
 - `ruslock::aio` uses `tokio` and `async/await`.
+- `ruslock::callback` is Sans-IO: it owns no socket and is driven by the caller.
 
 The blocking API does not wrap a tokio runtime. Both APIs share the same protocol,
 LockData, error, and primitive logic.
@@ -60,6 +61,47 @@ fn main() -> Result<()> {
 }
 ```
 
+## Callback / Sans-IO Quickstart
+
+The callback API is for external schedulers such as Python asyncio, mio, or an
+FFI host. The client never opens TCP. The caller sends bytes drained from
+`WriterBuffer`, pushes received bytes into `ReaderBuffer`, and calls the handler
+methods to advance the protocol state.
+
+```rust,no_run
+use ruslock::{LockData, Result};
+
+fn drive_callback_client() -> Result<()> {
+    let client = ruslock::callback::Client::new();
+    let reader = client.reader_buffer();
+    let writer = client.writer_buffer();
+
+    client.handle_init()?;
+    let init_bytes = writer.drain();
+    // caller sends init_bytes through its own socket
+    // caller receives bytes from that socket:
+    # let init_response = vec![0u8; 64];
+    reader.push(&init_response);
+    let _ready = client.handle_init()?;
+
+    let lock = client.lock("order:1001", 5, 10);
+    let _request = lock.acquire_with_data(LockData::set("aaa"), |result| {
+        let _ = result;
+    })?;
+    let command_bytes = writer.drain();
+    // caller sends command_bytes and later pushes response bytes into reader
+    # let response_bytes = vec![0u8; 64];
+    reader.push(&response_bytes);
+    let _callbacks = client.handle_read()?;
+
+    Ok(())
+}
+```
+
+If the caller's socket disconnects, call `handle_disconnect()`. `true` means the
+caller should reconnect and then call `handle_init()` again. Pending callbacks
+receive `ClientDisconnected`; cancelled request handles ignore late responses.
+
 ## Runtime Client Selection
 
 Use `ClientHandle` when deployment is selected from configuration. A single
@@ -111,8 +153,10 @@ assert_eq!(encoded[4], ruslock::protocol::constants::LOCK_DATA_COMMAND_TYPE_PIPE
 
 - `blocking`: synchronous client facade.
 - `aio`: async tokio client facade.
+- `callback`: always compiled, no feature flag required.
 - Replset support is included with each facade: `blocking::ReplsetClient` is available with `blocking`, and `aio::ReplsetClient` is available with `aio`.
 - default: `["blocking", "aio"]`.
+- With `default-features=false`, callback-only builds do not pull in tokio or socket2.
 
 ## Tests
 
