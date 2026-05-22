@@ -123,6 +123,41 @@ This keeps Java's `stage/type` at `raw[4]` and `commandFlag` at `raw[5]`.
   requestId as cancelled. Already written bytes are not retracted; a late
   response for a cancelled id is ignored.
 
+### Callback replset
+
+`callback::ReplsetClient` keeps the same Sans-IO rule as `callback::Client`.
+It does not create sockets or send bytes. It creates one child
+`callback::Client` per node address and exposes those children through
+`node_clients()` so the caller can bind each child to an external TCP
+connection.
+
+The replset state tracks:
+
+- `lived`: child indexes whose Init completed.
+- `leader`: child index whose Init response contains
+  `INIT_TYPE_FLAG_IS_LEADER`.
+- `operations`: public callback operations that may retry across children.
+
+Command routing is:
+
+1. Prefer the leader child when it is live.
+2. Otherwise use the first live child.
+3. If no child is live, return `NotConnected` without writing any
+   `WriterBuffer`.
+4. Write the command into the selected child `WriterBuffer`.
+5. Return a `RequestHandle` whose `transport()` snapshot contains the child
+   `Client`, node index, address, `ReaderBuffer`, and `WriterBuffer`.
+
+The caller should read `RequestHandle::transport()` immediately before
+draining bytes. A retry caused by `COMMAND_RESULT_STATE_ERROR` or
+`ClientDisconnected` may move the same public operation to another child; after
+that, `transport()` points to the new child's buffers. The old child request id
+is marked cancelled so late responses are ignored.
+
+Timeouts remain caller-driven. `ReplsetClient::next_deadline()` returns the
+earliest public operation deadline, and `handle_timeout(now)` cancels the
+current child request and invokes the user callback once with `CommandTimeout`.
+
 本文基于 `D:\workspace\github\jaslock` 当前 Java 实现整理，目标是为 `slock` 的 Rust driver 提供实现蓝图。重点覆盖命令实现、协议编解码、连接管理、database 管理和 API 接口实现。
 
 ## 1. 源码分层

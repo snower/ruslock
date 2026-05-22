@@ -1,26 +1,71 @@
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use crate::callback::client::{Client, RequestHandle};
+use crate::callback::client::{Client, RequestHandle, RequestOwner};
+use crate::callback::handle::RequestTransport;
 use crate::callback::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
 };
+use crate::callback::replset::ReplsetClient;
 use crate::error::Result;
 use crate::protocol::command::Command;
+use crate::protocol::id::Id16;
 use crate::protocol::result::CommandResult;
 use crate::time::PackedTime;
 
 #[derive(Clone, Debug)]
+pub(crate) enum ClientBackend {
+    Single(Client),
+    Replset(ReplsetClient),
+}
+
+impl ClientBackend {
+    pub(crate) fn send_command_callback<F>(
+        &self,
+        command: Command,
+        callback: F,
+    ) -> Result<RequestHandle>
+    where
+        F: FnOnce(Result<CommandResult>) + Send + 'static,
+    {
+        match self {
+            Self::Single(client) => client.send_command_callback(command, callback),
+            Self::Replset(client) => client.send_command_callback(command, callback),
+        }
+    }
+
+    pub(crate) fn send_command_on_handle<F>(
+        &self,
+        command: Command,
+        active_request: Arc<Mutex<Option<Id16>>>,
+        active_transport: Arc<Mutex<Option<RequestTransport>>>,
+        callback: F,
+    ) -> Result<Id16>
+    where
+        F: FnOnce(Result<CommandResult>) + Send + 'static,
+    {
+        match self {
+            Self::Single(client) => {
+                client.send_command_on_handle(command, active_request, active_transport, callback)
+            }
+            Self::Replset(client) => {
+                client.send_command_on_handle(command, active_request, active_transport, callback)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Database {
-    client: Client,
+    client: ClientBackend,
     db_id: u8,
     default_timeout_flags: Arc<AtomicU16>,
     default_expired_flags: Arc<AtomicU16>,
 }
 
 impl Database {
-    pub(crate) fn new(client: Client, db_id: u8) -> Self {
+    pub(crate) fn new(client: ClientBackend, db_id: u8) -> Self {
         Self {
             client,
             db_id,
@@ -147,7 +192,27 @@ impl Database {
         TreeLock::new(self.clone(), key, timeout, expired)
     }
 
-    pub(crate) fn client(&self) -> Client {
-        self.client.clone()
+    pub(crate) fn send_command_on_handle<F>(
+        &self,
+        command: Command,
+        active_request: Arc<Mutex<Option<Id16>>>,
+        active_transport: Arc<Mutex<Option<RequestTransport>>>,
+        callback: F,
+    ) -> Result<Id16>
+    where
+        F: FnOnce(Result<CommandResult>) + Send + 'static,
+    {
+        self.client
+            .send_command_on_handle(command, active_request, active_transport, callback)
+    }
+
+    pub(crate) fn request_owner(&self, operation_id: Id16) -> RequestOwner {
+        match &self.client {
+            ClientBackend::Single(client) => RequestOwner::Single(Arc::downgrade(&client.inner)),
+            ClientBackend::Replset(client) => RequestOwner::Replset {
+                replset: Arc::downgrade(&client.inner),
+                operation_id,
+            },
+        }
     }
 }

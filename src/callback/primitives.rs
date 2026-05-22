@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::callback::client::RequestHandle;
 use crate::callback::database::Database;
+use crate::callback::handle::RequestTransport;
 use crate::data::{LockData, LockResultData};
 use crate::error::{Result, SlockError};
 use crate::key::Key16;
@@ -347,6 +348,7 @@ impl Lock {
     fn send_lock_on_active<T, M, F>(
         &self,
         active_request: Arc<Mutex<Option<Id16>>>,
+        active_transport: Arc<Mutex<Option<RequestTransport>>>,
         command_type: u8,
         flag: u8,
         lock_id: Id16,
@@ -361,9 +363,10 @@ impl Lock {
     {
         let state = self.state.clone();
         let command = self.command(command_type, flag, lock_id, data);
-        self.database.client().send_command_on_handle(
+        self.database.send_command_on_handle(
             Command::Lock(command),
             active_request,
+            active_transport,
             move |result| {
                 callback(mapper(command_result_to_lock_result(&state, result)));
             },
@@ -1164,9 +1167,10 @@ impl TreeLeafLock {
         let leaf_lock = self.lock.clone();
         let user_callback: SharedLockCallback = Arc::new(Mutex::new(Some(Box::new(callback))));
         let active_request = Arc::new(Mutex::new(None));
-        let client = self.tree_lock.lock.database.client();
+        let active_transport = Arc::new(Mutex::new(None));
         let request_id = child_check.send_lock_on_active(
             active_request.clone(),
+            active_transport.clone(),
             COMMAND_TYPE_LOCK,
             LOCK_FLAG_LOCK_TREE_LOCK,
             child_check.lock_id(),
@@ -1176,6 +1180,7 @@ impl TreeLeafLock {
                 let parent_check = parent_check.clone();
                 let leaf_lock = leaf_lock.clone();
                 let active_request = active_request.clone();
+                let active_transport = active_transport.clone();
                 let user_callback = user_callback.clone();
                 move |child_result| {
                     if let Err(err) = child_result {
@@ -1183,10 +1188,13 @@ impl TreeLeafLock {
                         return;
                     }
                     let active = active_request.clone();
+                    let transport = active_transport.clone();
                     let leaf_active = active_request.clone();
+                    let leaf_transport = active_transport.clone();
                     let leaf_callback = user_callback.clone();
                     if let Err(err) = parent_check.send_lock_on_active(
                         active,
+                        transport,
                         COMMAND_TYPE_LOCK,
                         0,
                         parent_check.lock_id(),
@@ -1200,6 +1208,7 @@ impl TreeLeafLock {
                             let final_callback = leaf_callback.clone();
                             if let Err(err) = leaf_lock.send_lock_on_active(
                                 leaf_active,
+                                leaf_transport,
                                 COMMAND_TYPE_LOCK,
                                 0,
                                 leaf_lock.lock_id(),
@@ -1220,7 +1229,8 @@ impl TreeLeafLock {
         Ok(RequestHandle {
             request_id,
             active_request,
-            client: Arc::downgrade(&client.inner),
+            active_transport,
+            owner: self.tree_lock.lock.database.request_owner(request_id),
         })
     }
 

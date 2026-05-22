@@ -4,7 +4,7 @@
 
 **Goal:** Build a Rust `slock` client library that provides `ruslock::blocking` synchronous APIs, `ruslock::aio` async/await APIs, and `ruslock::callback` Sans-IO callback APIs, with behavior verified against the Java `jaslock` implementation.
 
-**Architecture:** Reuse one shared protocol/data/primitive-logic core, then implement separate blocking, async, and callback transport facades. Blocking uses `std::net::TcpStream` plus a reader supervisor thread; async uses tokio reader supervisor tasks; callback is Sans-IO and owns only reader/writer buffers plus pending callback state. Blocking and async own TCP connections, while callback is driven entirely by the caller's scheduler.
+**Architecture:** Reuse one shared protocol/data/primitive-logic core, then implement separate blocking, async, and callback transport facades. Blocking uses `std::net::TcpStream` plus a reader supervisor thread; async uses tokio reader supervisor tasks; callback is Sans-IO and owns only reader/writer buffers, pending callback state, and optional replset routing state. Blocking and async own TCP connections, while callback exposes child clients/buffers so the caller's scheduler owns all socket IO.
 
 **Tech Stack:** Rust, Cargo, tokio for `aio`, bitflags, md-5, rand, optional socket2 for `blocking`, thiserror, Sans-IO buffers for `callback`, local `slock` service for integration/parity tests.
 
@@ -12,7 +12,7 @@
 
 ## Summary
 
-The repository currently contains design documents and the implemented Rust crate. This plan tracks the completed protocol/blocking/async/replset/parity work and adds the callback/Sans-IO extension described in `design.md`.
+The repository currently contains design documents and the implemented Rust crate. This plan tracks the completed protocol/blocking/async/replset/parity work, the completed single-node callback/Sans-IO extension, and the newly planned callback replset extension described in `design.md`.
 
 ```text
 D:\workspace\github\jaslock\src\test\java\io\github\snower\jaslock\ClientTest.java
@@ -28,9 +28,11 @@ New requirement added on 2026-05-20: replset support must not be exposed as a se
 
 New requirement added on 2026-05-21: add `ruslock::callback` as a Sans-IO callback facade. It must not create TCP connections, hold sockets, start reader threads, or depend on tokio/socket2 when built with `default-features=false`. It exposes split `ReaderBuffer` and `WriterBuffer`; `handle_init`, `handle_read`, `handle_disconnect`, `handle_timeout`, and request cancellation drive protocol state; lock/event/semaphore and other primitive operations write commands to `writer_buffer` and return results only through callbacks. It must use `ClientDisconnected` for unexpected disconnects, preserve Java extra-data `payload_len + 4` layout, reuse the same `clientId` across reconnect init, and compute pending deadlines from `encoded.timeout + command_timeout_grace`.
 
+New requirement added on 2026-05-22: callback must also support replset cluster mode. `callback::ReplsetClient` is still Sans-IO: it creates one child `callback::Client` per node address, exposes those child clients to the caller for external TCP binding, tracks lived/leader nodes from child Init results, and routes lock/event/semaphore operations to the active child client. Callback business methods must return a `RequestHandle` that can expose the current concrete child `Client`, `ReaderBuffer`, and `WriterBuffer`; if retry or `STATE_ERROR` moves the request to another child, the same handle must reflect the new transport target.
+
 ## Execution Status
 
-Last updated: 2026-05-21.
+Last updated: 2026-05-22.
 
 Completed:
 
@@ -68,11 +70,14 @@ Completed:
 - [x] Task 14 callback Sans-IO buffer and client state machine is implemented with split buffers, Init/read/timeout/disconnect/cancel handling, callback-only build support, and mock tests.
 - [x] Task 15 callback primitive facade is implemented for Lock, Event, GroupEvent, Semaphore, ReentrantLock, ReadWriteLock, PriorityLock, MaxConcurrentFlow, TokenBucketFlow, TreeLock, and TreeLeafLock.
 - [x] Task 16 callback docs, examples, and final verification updates are implemented.
+- [x] Task 17 callback replset design and implementation plan are documented in `design.md` and `plan.md`.
+- [x] Task 18 callback replset core and child-client binding is implemented.
+- [x] Task 19 callback replset primitive routing, retry, tests, and docs are implemented.
 
 Remaining:
 
 - [x] Plan commit steps are represented by one final implementation commit rather than rewritten as historical per-task commits.
-- [x] No callback implementation tasks remain open; create the final implementation commit when requested.
+- [x] No callback replset implementation tasks remain open; create the final implementation commit when requested.
 
 Latest completed verification:
 
@@ -102,6 +107,9 @@ Latest completed verification:
 - [x] `cargo check --no-default-features`
 - [x] `cargo test --no-default-features --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
 - [x] `cargo test --all-features --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
+- [x] `cargo test --no-default-features --test callback_replset`
+- [x] `cargo test --no-default-features --test callback_replset --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
+- [x] `cargo test --all-features --test callback_replset --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
 
 ## Public API Targets
 
@@ -117,10 +125,13 @@ Latest completed verification:
 - `ruslock::aio::ReplsetClient`
 - `ruslock::aio::Database`
 - `ruslock::aio::{Lock, Event, GroupEvent, Semaphore, ReentrantLock, ReadWriteLock, PriorityLock, MaxConcurrentFlow, TokenBucketFlow, TreeLock}`
+- `ruslock::callback::ClientApi`
+- `ruslock::callback::ClientHandle`
 - `ruslock::callback::Client`
+- `ruslock::callback::ReplsetClient`
 - `ruslock::callback::Database`
 - `ruslock::callback::{Lock, Event, GroupEvent, Semaphore, ReentrantLock, ReadWriteLock, PriorityLock, MaxConcurrentFlow, TokenBucketFlow, TreeLock}`
-- `ruslock::callback::{ReaderBuffer, WriterBuffer, RequestHandle}`
+- `ruslock::callback::{ReaderBuffer, WriterBuffer, RequestHandle, RequestTransport, ReplsetNodeClient}`
 - Shared data/error/protocol types: `SlockError`, `Result<T>`, `ClientOptions`, `PackedTime`, `Id16`, `Key16`, `LockData`, `LockResultData`, command/result structs.
 
 ## Task 0: Crate Scaffold
@@ -583,6 +594,90 @@ Latest completed verification:
 - [x] Run `git diff --check`.
 - [x] Commit callback docs and final verification updates. Superseded by final implementation commit.
 
+## Task 17: Callback Replset Design Update
+
+**Files:**
+- Modify: `design.md`
+- Modify: `plan.md`
+
+- [x] Add the 2026-05-22 callback replset requirement to `design.md`.
+- [x] Update callback design so `callback::ReplsetClient` is Sans-IO and creates one child `callback::Client` per node address.
+- [x] Specify that callers use `ReplsetClient::node_clients()` / `ClientHandle::node_clients()` to bind external TCP connections to each child client.
+- [x] Specify that callback business `RequestHandle` exposes the active concrete child `Client`, `ReaderBuffer`, `WriterBuffer`, node index, and address through a transport snapshot.
+- [x] Specify that callback replset retry can move the active transport to a different child client and that callers should re-read `RequestHandle::transport()` before sending.
+- [x] Update plan status, public API targets, assumptions, and verification checklist for callback replset implementation.
+
+## Task 18: Callback Replset Core and Child Client Binding
+
+**Files:**
+- Create: `src/callback/api.rs`
+- Create: `src/callback/handle.rs`
+- Create: `src/callback/replset.rs`
+- Modify: `src/callback/mod.rs`
+- Modify: `src/callback/client.rs`
+- Modify: `src/callback/database.rs`
+- Modify: `src/callback/primitives.rs`
+- Test: `tests/callback_replset.rs`
+
+- [x] Define `callback::ClientApi` implemented by `callback::Client`, `callback::ReplsetClient`, and `callback::ClientHandle`.
+- [x] Define `callback::ClientHandle::{Single(Client), Replset(ReplsetClient)}` with `new(nodes)` selecting single-node or replset by node count.
+- [x] Implement `ClientHandle::node_clients()` so single-node returns one `ReplsetNodeClient` view and replset returns all child node views.
+- [x] Implement `ReplsetClient::new(nodes)` parsing comma strings and string slices, creating one child `Client` per node.
+- [x] Implement `ReplsetNodeClient` with `index()`, `address()`, `client()`, `reader_buffer()`, and `writer_buffer()`.
+- [x] Add an internal optional replset observer to child `callback::Client` so Init success, disconnect, close, and wrapper callback results can update parent replset state without doing network IO.
+- [x] Track callback replset `lived`, `leader`, active `operations`, and closed state.
+- [x] Update child Init handling so `INIT_TYPE_FLAG_IS_LEADER` marks the leader and any successful Init marks the node live.
+- [x] Update child `handle_disconnect()` observer flow so disconnected nodes are removed from lived/leader and active wrapper callbacks receive `ClientDisconnected`.
+- [x] Add tests proving multi-node construction exposes stable node index/address/client/buffers.
+- [x] Add tests proving child Init updates lived and leader state.
+- [x] Add tests proving child disconnect removes live/leader state and does not close sibling child clients.
+- [x] Run `cargo test --no-default-features --test callback_replset`.
+- [x] Run `cargo check --no-default-features`.
+
+## Task 19: Callback Replset Primitive Routing, Retry, Tests, and Docs
+
+**Files:**
+- Modify: `src/callback/replset.rs`
+- Modify: `src/callback/client.rs`
+- Modify: `src/callback/database.rs`
+- Modify: `src/callback/primitives.rs`
+- Modify: `src/callback/mod.rs`
+- Modify: `README.md`
+- Modify: `docs/Architecture.md`
+- Modify: `design.md`
+- Modify: `plan.md`
+- Test: `tests/callback_replset.rs`
+- Test: `tests/callback_primitives.rs`
+- Test: `tests/callback_state_mock.rs`
+
+- [x] Extend callback `RequestHandle` with stable `request_id()`, `current_request_id()`, `client()`, `reader_buffer()`, `writer_buffer()`, `transport()`, and `cancel()`.
+- [x] Implement `RequestTransport` as a clone snapshot containing node index, address, child `Client`, `ReaderBuffer`, and `WriterBuffer`.
+- [x] Route callback replset `ping`, `lock`, `event`, `group_event`, `semaphore`, `reentrant_lock`, `read_write_lock`, `priority_lock`, `max_concurrent_flow`, `token_bucket_flow`, and `tree_lock` through the same public primitive facade types as single-node callback.
+- [x] Implement command routing priority: leader first, then first live node, otherwise return `SlockError::NotConnected` without writing any writer buffer.
+- [x] Register replset wrapper callbacks in the selected child client; wrapper callbacks must map normal results to the user callback and retry only on retryable transport errors or lock `STATE_ERROR`.
+- [x] On retry, write the same logical command to the new child writer buffer, update the same `RequestHandle` active transport, and mark the old request id as cancelled on the old child so late responses are ignored.
+- [x] Preserve one-callback rule for multi-command primitives and replset retry together: TreeLock/TreeLeaf continuation plus node retry still calls the user callback exactly once.
+- [x] Implement cancellation so cancelling a callback replset `RequestHandle` cancels the current child request and removes the operation from replset state.
+- [x] Implement callback replset timeout handling so public operation deadline is not reset by retry; timeout cancels the active child request and invokes the user callback once.
+- [x] Add tests proving business commands write to leader writer buffer and `RequestHandle::transport()` points to the leader.
+- [x] Add tests proving fallback writes to first live child when no leader exists.
+- [x] Add tests proving no live child returns `NotConnected` and leaves all writer buffers empty.
+- [x] Add tests proving lock `STATE_ERROR` retries on another live child, updates `RequestHandle::transport()`, ignores old late responses, and invokes the user callback once.
+- [x] Add tests proving `ClientDisconnected` from the active child retries when another live child exists and fails when no live child remains.
+- [x] Add tests proving callback replset cancellation removes current child pending state and suppresses late callbacks.
+- [x] Add tests proving callback replset TreeLeaf continuation can change active child between steps and still invokes the user callback once.
+- [x] Update README callback quickstart with multi-node `ReplsetClient` / `ClientHandle` usage and external socket binding.
+- [x] Update `docs/Architecture.md` with callback replset Sans-IO flow and RequestHandle transport semantics.
+- [x] Update `plan.md` execution status after implementation.
+- [x] Run `cargo test --no-default-features --test callback_replset --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`.
+- [x] Run `cargo test --all-features --test callback_replset --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`.
+- [x] Run `cargo test --features blocking --no-default-features`.
+- [x] Run `cargo test --features aio --no-default-features`.
+- [x] Run `cargo test --all-features`.
+- [x] Run `cargo fmt --check`.
+- [x] Run `cargo clippy --all-features --all-targets -- -D warnings`.
+- [x] Run `git diff --check`.
+
 ## Verification Commands
 
 - [x] `cargo fmt --check`
@@ -597,6 +692,9 @@ Latest completed verification:
 - [x] `cargo test --no-default-features --test callback_buffer --test callback_client`
 - [x] `cargo test --no-default-features --test callback_primitives --test callback_state_mock`
 - [x] `cargo test --all-features --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
+- [x] `cargo test --no-default-features --test callback_replset`
+- [x] `cargo test --no-default-features --test callback_replset --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
+- [x] `cargo test --all-features --test callback_replset --test callback_buffer --test callback_client --test callback_primitives --test callback_state_mock`
 
 ## Plan Review
 
@@ -608,6 +706,7 @@ Completeness review:
 - Covers the 2026-05-20 Java-compatible connection lifecycle requirement: reader starts only after initial connect/init success, then reconnects until explicit close.
 - Covers the 2026-05-20 feature cleanup requirement: replset is part of the selected calling model, not its own feature.
 - Covers the 2026-05-21 callback/Sans-IO requirement through dedicated split-buffer/client, cancellation, primitive facade, docs, and callback-only test tasks.
+- Covers the 2026-05-22 callback replset requirement through child-client binding, `RequestHandle` transport exposure, leader/live routing, retry, cancellation, timeout, and callback replset tests.
 - Covers callback Java-compatibility details that are easy to miss: `ClientDisconnected`, clientId reuse across reconnect init, Java `payload_len + 4` extra-data raw layout, encoded-timeout deadline math, and callback-only dependency checks.
 - Covers the full Java `ClientTest.java` test list, including benchmark as ignored-by-default.
 - Covers both unit tests and integration/parity tests.
@@ -619,7 +718,9 @@ Reasonableness review:
 - The plan avoids using an async runtime under blocking APIs, matching `design.md`.
 - The reconnect behavior is assigned to the transport layer while command replay semantics stay with replset, avoiding hidden duplicate execution in single-node clients.
 - The callback work is separated after the existing TCP-owned facades so it can reuse stable protocol and primitive logic without destabilizing blocking/aio behavior.
+- The callback replset work is layered after callback single-client support: first expose child clients and state observation, then add primitive routing and retry. This keeps external IO ownership clear while preserving replset semantics.
 - The callback tasks test half-packet, sticky-packet, callback reentrancy, cancellation, timeout, disconnect, max-frame protection, and multi-command continuation behavior without requiring a real TCP server.
+- The callback replset tests remain Sans-IO and mock-driven: each node is driven through its own reader/writer buffers rather than a real TCP socket.
 - The scope is large for one uninterrupted implementation session, so execution should proceed task-by-task with verification after each commit.
 - The only external runtime dependency is a local `slock` service for integration/parity tests; tests that require it should skip or be explicitly gated when the service is unavailable.
 
@@ -628,8 +729,9 @@ Assumptions:
 - `replset` is part of v1 and not deferred.
 - `Client` and `ReplsetClient` must remain business-code interchangeable through the same abstraction; runtime construction may vary by single or multiple endpoints, but downstream usage must not vary.
 - Single-node automatic reconnect restores the socket/session but does not silently replay in-flight lock commands.
-- Callback client is single-node in the first implementation; callback replset is a future extension requiring separate per-node buffers and connection lifecycle events.
+- Callback replset is required. It creates separate child callback clients per node and exposes them to the caller for external connection lifecycle events.
 - Callback APIs own no TCP socket and start no background reader or timer; the caller drives init, read, disconnect, and timeout.
+- Callback replset does not create sockets either; it only routes commands among child callback clients and updates `RequestHandle` transport snapshots.
 - Callback cancellation does not retract bytes already written to `WriterBuffer` or already sent by the caller; it removes pending state and ignores the eventual response.
 - Callback extra-data frame size is bounded by `ClientOptions::max_frame_size`, defaulting to 16 MiB unless implementation evidence suggests a different safe default.
 - Tokio is the async runtime.

@@ -102,6 +102,45 @@ If the caller's socket disconnects, call `handle_disconnect()`. `true` means the
 caller should reconnect and then call `handle_init()` again. Pending callbacks
 receive `ClientDisconnected`; cancelled request handles ignore late responses.
 
+### Callback Replset
+
+Callback replset keeps the same Sans-IO boundary. `ReplsetClient` creates one
+child `Client` per node; the caller binds each child to its own TCP connection.
+Business calls return a `RequestHandle` whose transport points at the child that
+currently owns the request.
+
+```rust,no_run
+use ruslock::Result;
+
+fn drive_callback_replset() -> Result<()> {
+    let client = ruslock::callback::ReplsetClient::new([
+        "127.0.0.1:5658",
+        "127.0.0.1:5659",
+    ])?;
+
+    for node in client.node_clients() {
+        let child = node.client();
+        child.handle_init()?;
+        let init_bytes = node.writer_buffer().drain();
+        // caller sends init_bytes on the socket bound to node.address()
+    }
+
+    let lock = client.lock("order:1001", 5, 5);
+    let request = lock.acquire(|result| {
+        let _ = result;
+    })?;
+
+    let transport = request.transport()?;
+    let bytes = transport.writer_buffer().drain();
+    // caller sends bytes on the socket for transport.address()
+
+    Ok(())
+}
+```
+
+On retry or `STATE_ERROR`, the same `RequestHandle` may point to another child
+client. Re-read `request.transport()` before draining bytes.
+
 ## Runtime Client Selection
 
 Use `ClientHandle` when deployment is selected from configuration. A single
@@ -154,7 +193,7 @@ assert_eq!(encoded[4], ruslock::protocol::constants::LOCK_DATA_COMMAND_TYPE_PIPE
 - `blocking`: synchronous client facade.
 - `aio`: async tokio client facade.
 - `callback`: always compiled, no feature flag required.
-- Replset support is included with each facade: `blocking::ReplsetClient` is available with `blocking`, and `aio::ReplsetClient` is available with `aio`.
+- Replset support is included with each facade: `blocking::ReplsetClient` is available with `blocking`, `aio::ReplsetClient` is available with `aio`, and `callback::ReplsetClient` is always available as Sans-IO state.
 - default: `["blocking", "aio"]`.
 - With `default-features=false`, callback-only builds do not pull in tokio or socket2.
 

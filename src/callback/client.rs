@@ -5,11 +5,13 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 
 use crate::callback::buffer::{ReaderBuffer, SharedBuffer, WriterBuffer};
-use crate::callback::database::Database;
+use crate::callback::database::{ClientBackend, Database};
+use crate::callback::handle::{ReplsetNodeClient, RequestTransport};
 use crate::callback::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
 };
+use crate::callback::replset::ReplsetInner;
 use crate::error::{Result, SlockError};
 use crate::options::ClientOptions;
 use crate::protocol::codec::{decode_response, response_has_extra_data, HEADER_LEN};
@@ -18,7 +20,7 @@ use crate::protocol::constants::COMMAND_RESULT_SUCCED;
 use crate::protocol::id::Id16;
 use crate::protocol::result::{CommandResult, PingCommandResult};
 
-type CommandCallback = Box<dyn FnOnce(Result<CommandResult>) + Send + 'static>;
+pub(crate) type CommandCallback = Box<dyn FnOnce(Result<CommandResult>) + Send + 'static>;
 
 #[derive(Clone)]
 pub struct Client {
@@ -34,7 +36,14 @@ pub(crate) struct ClientInner {
     writer_buffer: SharedBuffer,
     pending: Mutex<HashMap<Id16, PendingCallback>>,
     cancelled: Mutex<HashSet<Id16>>,
+    observer: Mutex<Option<ClientObserver>>,
     closed: AtomicBool,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClientObserver {
+    pub(crate) node_index: usize,
+    pub(crate) replset: Weak<ReplsetInner>,
 }
 
 impl fmt::Debug for Client {
@@ -62,7 +71,17 @@ struct PendingCallback {
 pub struct RequestHandle {
     pub(crate) request_id: Id16,
     pub(crate) active_request: Arc<Mutex<Option<Id16>>>,
-    pub(crate) client: Weak<ClientInner>,
+    pub(crate) active_transport: Arc<Mutex<Option<RequestTransport>>>,
+    pub(crate) owner: RequestOwner,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum RequestOwner {
+    Single(Weak<ClientInner>),
+    Replset {
+        replset: Weak<ReplsetInner>,
+        operation_id: Id16,
+    },
 }
 
 impl RequestHandle {
@@ -71,30 +90,74 @@ impl RequestHandle {
         self.request_id
     }
 
+    pub fn current_request_id(&self) -> Option<Id16> {
+        *self
+            .active_request
+            .lock()
+            .expect("callback request handle mutex poisoned")
+    }
+
+    pub fn client(&self) -> Option<Client> {
+        self.transport().ok().map(|transport| transport.client())
+    }
+
+    pub fn reader_buffer(&self) -> Option<ReaderBuffer> {
+        self.transport()
+            .ok()
+            .map(|transport| transport.reader_buffer())
+    }
+
+    pub fn writer_buffer(&self) -> Option<WriterBuffer> {
+        self.transport()
+            .ok()
+            .map(|transport| transport.writer_buffer())
+    }
+
+    pub fn transport(&self) -> Result<RequestTransport> {
+        self.active_transport
+            .lock()
+            .expect("callback request transport mutex poisoned")
+            .clone()
+            .ok_or(SlockError::NotConnected)
+    }
+
     /// Cancels the currently pending request for this operation.
     ///
     /// Bytes already drained from `WriterBuffer` cannot be retracted. If the
     /// server later replies for the cancelled request, `handle_read` ignores
     /// that response and does not invoke the user callback.
     pub fn cancel(&self) -> Result<bool> {
-        let Some(client) = self.client.upgrade() else {
-            return Ok(false);
-        };
-        let Some(request_id) = *self
-            .active_request
-            .lock()
-            .expect("callback request handle mutex poisoned")
-        else {
-            return Ok(false);
-        };
-        let cancelled = client.cancel_request(request_id)?;
-        if cancelled {
-            *self
-                .active_request
-                .lock()
-                .expect("callback request handle mutex poisoned") = None;
+        match &self.owner {
+            RequestOwner::Single(client) => {
+                let Some(client) = client.upgrade() else {
+                    return Ok(false);
+                };
+                let Some(request_id) = self.current_request_id() else {
+                    return Ok(false);
+                };
+                let cancelled = client.cancel_request(request_id)?;
+                if cancelled {
+                    *self
+                        .active_request
+                        .lock()
+                        .expect("callback request handle mutex poisoned") = None;
+                    *self
+                        .active_transport
+                        .lock()
+                        .expect("callback request transport mutex poisoned") = None;
+                }
+                Ok(cancelled)
+            }
+            RequestOwner::Replset {
+                replset,
+                operation_id,
+            } => {
+                let Some(replset) = replset.upgrade() else {
+                    return Ok(false);
+                };
+                replset.cancel_operation(*operation_id)
+            }
         }
-        Ok(cancelled)
     }
 }
 
@@ -116,6 +179,7 @@ impl Client {
                 writer_buffer: SharedBuffer::new(),
                 pending: Mutex::new(HashMap::new()),
                 cancelled: Mutex::new(HashSet::new()),
+                observer: Mutex::new(None),
                 closed: AtomicBool::new(false),
             }),
         }
@@ -177,6 +241,10 @@ impl Client {
         self.inner.close()
     }
 
+    pub fn node_clients(&self) -> Vec<ReplsetNodeClient> {
+        vec![ReplsetNodeClient::new(0, String::new(), self.clone())]
+    }
+
     pub fn ping<F>(&self, callback: F) -> Result<RequestHandle>
     where
         F: FnOnce(Result<PingCommandResult>) + Send + 'static,
@@ -194,7 +262,7 @@ impl Client {
     }
 
     pub fn select_database(&self, db_id: u8) -> Database {
-        Database::new(self.clone(), db_id)
+        Database::new(ClientBackend::Single(self.clone()), db_id)
     }
 
     pub fn lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> Lock {
@@ -301,13 +369,22 @@ impl Client {
         F: FnOnce(Result<CommandResult>) + Send + 'static,
     {
         let active_request = Arc::new(Mutex::new(None));
-        let request_id =
-            self.inner
-                .enqueue_command(command, active_request.clone(), Box::new(callback))?;
+        let active_transport = Arc::new(Mutex::new(Some(RequestTransport::new(
+            0,
+            String::new(),
+            self.clone(),
+        ))));
+        let request_id = self.inner.enqueue_command(
+            command,
+            active_request.clone(),
+            active_transport.clone(),
+            Box::new(callback),
+        )?;
         Ok(RequestHandle {
             request_id,
             active_request,
-            client: Arc::downgrade(&self.inner),
+            active_transport,
+            owner: RequestOwner::Single(Arc::downgrade(&self.inner)),
         })
     }
 
@@ -315,13 +392,42 @@ impl Client {
         &self,
         command: Command,
         active_request: Arc<Mutex<Option<Id16>>>,
+        active_transport: Arc<Mutex<Option<RequestTransport>>>,
         callback: F,
     ) -> Result<Id16>
     where
         F: FnOnce(Result<CommandResult>) + Send + 'static,
     {
+        {
+            let mut transport = active_transport
+                .lock()
+                .expect("callback request transport mutex poisoned");
+            if transport.is_none() {
+                *transport = Some(RequestTransport::new(0, String::new(), self.clone()));
+            }
+        }
+        self.inner.enqueue_command(
+            command,
+            active_request,
+            active_transport,
+            Box::new(callback),
+        )
+    }
+
+    pub(crate) fn set_observer(&self, observer: ClientObserver) {
+        *self
+            .inner
+            .observer
+            .lock()
+            .expect("callback observer mutex poisoned") = Some(observer);
+    }
+
+    pub(crate) fn mark_cancelled(&self, request_id: Id16) {
         self.inner
-            .enqueue_command(command, active_request, Box::new(callback))
+            .cancelled
+            .lock()
+            .expect("callback cancelled mutex poisoned")
+            .insert(request_id);
     }
 }
 
@@ -370,6 +476,16 @@ impl ClientInner {
                 };
                 self.init_type.store(init.init_type, Ordering::SeqCst);
                 *state = CallbackState::Inited;
+                if let Some(observer) = self
+                    .observer
+                    .lock()
+                    .expect("callback observer mutex poisoned")
+                    .clone()
+                {
+                    if let Some(replset) = observer.replset.upgrade() {
+                        replset.on_child_init(observer.node_index, init.init_type);
+                    }
+                }
                 Ok(true)
             }
             CallbackState::Inited => Ok(true),
@@ -474,6 +590,16 @@ impl ClientInner {
             return Ok(false);
         }
         *state = CallbackState::Disconnected;
+        if let Some(observer) = self
+            .observer
+            .lock()
+            .expect("callback observer mutex poisoned")
+            .clone()
+        {
+            if let Some(replset) = observer.replset.upgrade() {
+                replset.on_child_disconnect(observer.node_index);
+            }
+        }
         Ok(self.options.auto_reconnect)
     }
 
@@ -565,6 +691,16 @@ impl ClientInner {
             pending.clear_active();
             (pending.complete)(Err(SlockError::ClientClosed));
         }
+        if let Some(observer) = self
+            .observer
+            .lock()
+            .expect("callback observer mutex poisoned")
+            .clone()
+        {
+            if let Some(replset) = observer.replset.upgrade() {
+                replset.on_child_disconnect(observer.node_index);
+            }
+        }
         Ok(())
     }
 
@@ -572,6 +708,7 @@ impl ClientInner {
         self: &Arc<Self>,
         command: Command,
         active_request: Arc<Mutex<Option<Id16>>>,
+        _active_transport: Arc<Mutex<Option<RequestTransport>>>,
         callback: CommandCallback,
     ) -> Result<Id16> {
         if self.closed.load(Ordering::SeqCst) {
