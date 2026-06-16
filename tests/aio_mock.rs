@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
 
 use ruslock::aio::Client;
 use ruslock::protocol::constants::*;
@@ -59,6 +60,33 @@ where
         handler(stream).await;
     });
     address
+}
+
+async fn start_reconnect_server() -> (String, oneshot::Receiver<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let (reconnected_tx, reconnected_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        first.read_exact(&mut init).await.unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        first.write_all(&init_response(&init)).await.unwrap();
+        drop(first);
+
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        second.read_exact(&mut init).await.unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        second.write_all(&init_response(&init)).await.unwrap();
+        reconnected_tx.send(()).unwrap();
+
+        let mut ping = [0u8; 64];
+        second.read_exact(&mut ping).await.unwrap();
+        assert_eq!(ping[2], COMMAND_TYPE_PING);
+        second.write_all(&ping_response(&ping)).await.unwrap();
+    });
+    (address, reconnected_rx)
 }
 
 async fn read_extra_if_present(stream: &mut TcpStream, request: &[u8; 64]) {
@@ -140,6 +168,40 @@ async fn async_close_wakes_pending_request() {
     client.close().await;
     let err = waiter.await.unwrap();
     assert!(matches!(err, SlockError::ClientClosed));
+}
+
+#[tokio::test]
+async fn async_reader_task_reconnects_after_disconnect_until_close() {
+    let (address, reconnected_rx) = start_reconnect_server().await;
+    let options = ClientOptions {
+        reconnect_interval: Duration::from_millis(20),
+        command_timeout_grace: Duration::from_millis(50),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    client.open().await.unwrap();
+
+    tokio::time::timeout(Duration::from_secs(2), reconnected_rx)
+        .await
+        .expect("reader task did not reconnect")
+        .unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        match client.ping().await {
+            Ok(true) => break,
+            Err(SlockError::Io(_))
+            | Err(SlockError::NotConnected)
+            | Err(SlockError::CommandTimeout)
+                if tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            other => panic!("ping did not succeed after reconnect: {other:?}"),
+        }
+    }
+
+    client.close().await;
 }
 
 #[tokio::test]

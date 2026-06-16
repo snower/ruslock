@@ -1,7 +1,7 @@
 //! Rust client for `slock`.
 //!
-//! The crate provides independent blocking and async facades over shared protocol
-//! and data types.
+//! The crate provides independent blocking, async, and Sans-IO callback facades
+//! over shared protocol and data types.
 //!
 //! ```no_run
 //! # #[cfg(feature = "blocking")]
@@ -15,6 +15,22 @@
 //! }
 //! # #[cfg(not(feature = "blocking"))]
 //! # fn main() {}
+//! ```
+//!
+//! Callback/Sans-IO users own the socket and drive buffers manually:
+//!
+//! ```no_run
+//! fn run() -> ruslock::Result<()> {
+//! let client = ruslock::callback::Client::new();
+//! let reader = client.reader_buffer();
+//! let writer = client.writer_buffer();
+//! client.handle_init()?;
+//! let _bytes_to_send = writer.drain();
+//! # let response = vec![0u8; 64];
+//! reader.push(&response);
+//! let _ready = client.handle_init()?;
+//! Ok(())
+//! }
 //! ```
 //!
 //! ```no_run
@@ -39,6 +55,7 @@
 //! assert!(data.encode().unwrap().len() > 6);
 //! ```
 
+pub mod callback;
 pub mod data;
 pub mod error;
 pub mod key;

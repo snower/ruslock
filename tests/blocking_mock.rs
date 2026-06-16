@@ -2,8 +2,9 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ruslock::blocking::Client;
 use ruslock::protocol::constants::*;
@@ -58,6 +59,33 @@ where
         handler(stream);
     });
     address
+}
+
+fn start_reconnect_server() -> (String, mpsc::Receiver<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let (reconnected_tx, reconnected_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let (mut first, _) = listener.accept().unwrap();
+        let mut init = [0u8; 64];
+        first.read_exact(&mut init).unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        first.write_all(&init_response(&init)).unwrap();
+        drop(first);
+
+        let (mut second, _) = listener.accept().unwrap();
+        let mut init = [0u8; 64];
+        second.read_exact(&mut init).unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        second.write_all(&init_response(&init)).unwrap();
+        reconnected_tx.send(()).unwrap();
+
+        let mut ping = [0u8; 64];
+        second.read_exact(&mut ping).unwrap();
+        assert_eq!(ping[2], COMMAND_TYPE_PING);
+        second.write_all(&ping_response(&ping)).unwrap();
+    });
+    (address, reconnected_rx)
 }
 
 fn read_extra_if_present(stream: &mut TcpStream, request: &[u8; 64]) {
@@ -136,6 +164,39 @@ fn close_wakes_pending_request() {
     client.close();
     let err = waiter.join().unwrap();
     assert!(matches!(err, SlockError::ClientClosed));
+}
+
+#[test]
+fn reader_thread_reconnects_after_disconnect_until_close() {
+    let (address, reconnected_rx) = start_reconnect_server();
+    let options = ClientOptions {
+        reconnect_interval: Duration::from_millis(20),
+        command_timeout_grace: Duration::from_millis(50),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    client.open().unwrap();
+
+    reconnected_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("reader thread did not reconnect");
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match client.ping() {
+            Ok(true) => break,
+            Err(SlockError::Io(_))
+            | Err(SlockError::NotConnected)
+            | Err(SlockError::CommandTimeout)
+                if Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            other => panic!("ping did not succeed after reconnect: {other:?}"),
+        }
+    }
+
+    client.close();
 }
 
 #[test]

@@ -1,4 +1,4 @@
-#![cfg(all(feature = "blocking", feature = "aio", feature = "replset"))]
+#![cfg(any(feature = "blocking", feature = "aio"))]
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
@@ -32,6 +32,7 @@ fn unique_key(prefix: &str) -> String {
     format!("{prefix}-{}", std::process::id())
 }
 
+#[cfg(feature = "blocking")]
 #[test]
 fn test_replset_client_lock() {
     if !slock_available() {
@@ -58,6 +59,7 @@ fn test_replset_client_lock() {
     assert_eq!(lock2.current_data().unwrap().as_string().unwrap(), "ccc");
 }
 
+#[cfg(feature = "aio")]
 #[tokio::test]
 async fn test_replset_client_async_lock() {
     if !slock_available() {

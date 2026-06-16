@@ -14,6 +14,9 @@ pub enum SlockError {
     #[error("client not connected")]
     NotConnected,
 
+    #[error("client disconnected")]
+    ClientDisconnected,
+
     #[error("command timeout")]
     CommandTimeout,
 
