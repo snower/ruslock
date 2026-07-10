@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    services:
+      slock:
+        image: sujin190/slock
+        ports:
+          - 5658:5658
+        options: >-
+          --health-cmd "slock-cli ping"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SLOCK_TEST_HOST: 127.0.0.1
+      SLOCK_TEST_PORT: 5658
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --all-features --locked
