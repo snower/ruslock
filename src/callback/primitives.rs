@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::callback::client::RequestHandle;
+use crate::callback::client::{RequestControl, RequestHandle};
 use crate::callback::database::Database;
 use crate::callback::handle::RequestTransport;
 use crate::data::{LockData, LockResultData};
@@ -349,6 +349,7 @@ impl Lock {
         &self,
         active_request: Arc<Mutex<Option<Id16>>>,
         active_transport: Arc<Mutex<Option<RequestTransport>>>,
+        control: Arc<RequestControl>,
         command_type: u8,
         flag: u8,
         lock_id: Id16,
@@ -367,6 +368,7 @@ impl Lock {
             Command::Lock(command),
             active_request,
             active_transport,
+            control,
             move |result| {
                 callback(mapper(command_result_to_lock_result(&state, result)));
             },
@@ -1168,9 +1170,11 @@ impl TreeLeafLock {
         let user_callback: SharedLockCallback = Arc::new(Mutex::new(Some(Box::new(callback))));
         let active_request = Arc::new(Mutex::new(None));
         let active_transport = Arc::new(Mutex::new(None));
+        let control = Arc::new(RequestControl::staged());
         let request_id = child_check.send_lock_on_active(
             active_request.clone(),
             active_transport.clone(),
+            control.clone(),
             COMMAND_TYPE_LOCK,
             LOCK_FLAG_LOCK_TREE_LOCK,
             child_check.lock_id(),
@@ -1181,10 +1185,11 @@ impl TreeLeafLock {
                 let leaf_lock = leaf_lock.clone();
                 let active_request = active_request.clone();
                 let active_transport = active_transport.clone();
+                let control = control.clone();
                 let user_callback = user_callback.clone();
                 move |child_result| {
                     if let Err(err) = child_result {
-                        finish_lock_callback(&user_callback, Err(err));
+                        finish_lock_callback_if_active(&user_callback, &control, Err(err));
                         return;
                     }
                     let active = active_request.clone();
@@ -1192,9 +1197,11 @@ impl TreeLeafLock {
                     let leaf_active = active_request.clone();
                     let leaf_transport = active_transport.clone();
                     let leaf_callback = user_callback.clone();
+                    let parent_control = control.clone();
                     if let Err(err) = parent_check.send_lock_on_active(
                         active,
                         transport,
+                        control.clone(),
                         COMMAND_TYPE_LOCK,
                         0,
                         parent_check.lock_id(),
@@ -1202,25 +1209,45 @@ impl TreeLeafLock {
                         accept_locked_result,
                         move |parent_result| {
                             if let Err(err) = parent_result {
-                                finish_lock_callback(&leaf_callback, Err(err));
+                                finish_lock_callback_if_active(
+                                    &leaf_callback,
+                                    &parent_control,
+                                    Err(err),
+                                );
                                 return;
                             }
                             let final_callback = leaf_callback.clone();
+                            let leaf_control = parent_control.clone();
+                            let leaf_control_for_send = parent_control.clone();
                             if let Err(err) = leaf_lock.send_lock_on_active(
                                 leaf_active,
                                 leaf_transport,
+                                leaf_control_for_send,
                                 COMMAND_TYPE_LOCK,
                                 0,
                                 leaf_lock.lock_id(),
                                 None,
                                 |value| value,
-                                move |result| finish_lock_callback(&final_callback, result),
+                                {
+                                    let leaf_control = leaf_control.clone();
+                                    move |result| {
+                                        finish_lock_callback_if_active(
+                                            &final_callback,
+                                            &leaf_control,
+                                            result,
+                                        )
+                                    }
+                                },
                             ) {
-                                finish_lock_callback(&leaf_callback, Err(err));
+                                finish_lock_callback_if_active(
+                                    &leaf_callback,
+                                    &leaf_control,
+                                    Err(err),
+                                );
                             }
                         },
                     ) {
-                        finish_lock_callback(&user_callback, Err(err));
+                        finish_lock_callback_if_active(&user_callback, &control, Err(err));
                     }
                 }
             },
@@ -1230,7 +1257,8 @@ impl TreeLeafLock {
             request_id,
             active_request,
             active_transport,
-            owner: self.tree_lock.lock.database.request_owner(request_id),
+            control,
+            owner: self.tree_lock.lock.database.request_owner(),
         })
     }
 
@@ -1262,6 +1290,17 @@ fn finish_lock_callback(callback: &SharedLockCallback, result: Result<LockComman
     {
         callback(result);
     }
+}
+
+fn finish_lock_callback_if_active(
+    callback: &SharedLockCallback,
+    control: &RequestControl,
+    result: Result<LockCommandResult>,
+) {
+    if !control.claim_terminal() {
+        return;
+    }
+    finish_lock_callback(callback, result);
 }
 
 fn accept_locked_result(value: Result<LockCommandResult>) -> Result<LockCommandResult> {

@@ -39,7 +39,9 @@ same lifecycle:
 
 1. `open()` performs the first TCP connect and Init handshake synchronously
    with the caller. A reader thread/task is created only after that first
-   handshake succeeds.
+   handshake succeeds. `ClientOptions::connect_timeout` covers both TCP connect
+   and Init. The blocking client's standard-library DNS lookup cannot be
+   interrupted by that deadline.
 2. The reader thread/task acts as a connection supervisor. It reads responses
    until a read failure occurs, then removes the current writer, wakes pending
    commands with an IO error, and starts reconnect attempts.
@@ -55,6 +57,10 @@ New commands sent while the connection is between sockets may observe
 `NotConnected` or a write IO error; they are not silently queued by the
 single-node client. `ReplsetClient` owns the higher-level pending/retry queue
 for commands that should wait for another node or a later reconnect.
+
+All three transports apply `ClientOptions::max_frame_size` to the declared
+response extra-data payload before allocating its buffer. The four-byte length
+prefix and the 64-byte response header are not part of this limit.
 
 ## Callback / Sans-IO Update (2026-05-21)
 
@@ -118,10 +124,13 @@ This keeps Java's `stage/type` at `raw[4]` and `commandFlag` at `raw[5]`.
   is `encoded.timeout.low_16_seconds + ClientOptions::command_timeout_grace`,
   including timeout `0`.
 - `handle_timeout(now)` removes expired pending callbacks and completes them
-  with `CommandTimeout` or primitive-specific mapping.
+  with `CommandTimeout` or primitive-specific mapping. Recently timed-out
+  request IDs are handled the same way as cancelled IDs when a reply arrives.
 - `RequestHandle::cancel()` removes the current pending request and records its
-  requestId as cancelled. Already written bytes are not retracted; a late
-  response for a cancelled id is ignored.
+  request ID so a late response can be ignored. Tracking is bounded and scoped
+  to the current connection; an untracked ID is still a protocol error.
+  Cancellation is local: it does not retract outbound bytes or undo commands
+  on the server.
 
 ### Callback replset
 
@@ -157,6 +166,8 @@ is marked cancelled so late responses are ignored.
 Timeouts remain caller-driven. `ReplsetClient::next_deadline()` returns the
 earliest public operation deadline, and `handle_timeout(now)` cancels the
 current child request and invokes the user callback once with `CommandTimeout`.
+For a multi-stage tree acquisition, the original request handle can cancel the
+active stage even after advancing to a different stage or replica.
 
 本文基于 `D:\workspace\github\jaslock` 当前 Java 实现整理，目标是为 `slock` 的 Rust driver 提供实现蓝图。重点覆盖命令实现、协议编解码、连接管理、database 管理和 API 接口实现。
 

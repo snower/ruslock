@@ -56,7 +56,9 @@ pub(crate) struct Connection {
     writer: Arc<AsyncMutex<Option<OwnedWriteHalf>>>,
     pending: Arc<AsyncMutex<HashMap<Id16, PendingSender>>>,
     closed: Arc<AtomicBool>,
-    reader_running: Arc<AtomicBool>,
+    open_gate: AsyncMutex<()>,
+    reader_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    cleanup_task: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Connection {
@@ -69,42 +71,102 @@ impl Connection {
             writer: Arc::new(AsyncMutex::new(None)),
             pending: Arc::new(AsyncMutex::new(HashMap::new())),
             closed: Arc::new(AtomicBool::new(false)),
-            reader_running: Arc::new(AtomicBool::new(false)),
+            open_gate: AsyncMutex::new(()),
+            reader_task: Mutex::new(None),
+            cleanup_task: AsyncMutex::new(None),
         }
     }
 
     pub(crate) async fn open(&self) -> Result<()> {
-        if self.reader_running.swap(true, Ordering::SeqCst) {
-            return Ok(());
+        // Serialize lifecycle transitions so concurrent opens wait for the first
+        // handshake instead of reporting success before the connection exists.
+        let _gate = self.open_gate.lock().await;
+        self.await_cleanup().await;
+
+        let stale_task = {
+            let mut reader_task = self.reader_task.lock().expect("reader task mutex poisoned");
+            match reader_task.as_ref() {
+                Some(handle) if !handle.is_finished() => return Ok(()),
+                Some(_) => reader_task.take(),
+                None => None,
+            }
+        };
+        if let Some(handle) = stale_task {
+            handle.abort();
+            let _ = handle.await;
         }
-        self.closed.store(false, Ordering::SeqCst);
+
         let client_id = {
             let mut guard = self.client_id.lock().expect("client id mutex poisoned");
             *guard.get_or_insert_with(Id16::new)
         };
-        match connect_once(&self.address, &self.options, client_id).await {
-            Ok((reader, writer, init_type)) => {
-                *self.init_type.lock().expect("init type mutex poisoned") = init_type;
-                *self.writer.lock().await = Some(writer);
-                self.spawn_reader(reader, client_id);
-                Ok(())
-            }
-            Err(err) => {
-                self.reader_running.store(false, Ordering::SeqCst);
-                Err(err)
-            }
-        }
+        let (reader, writer, init_type) =
+            connect_once(&self.address, &self.options, client_id).await?;
+
+        // From here to the end of the publication there is no await point, so a
+        // cancelled open cannot leave a half-published connection.
+        let mut writer_slot = self.writer.lock().await;
+        *self.init_type.lock().expect("init type mutex poisoned") = init_type;
+        // Any writer surviving a previous lifecycle transition is stale.
+        drop(writer_slot.take());
+        *writer_slot = Some(writer);
+        self.closed.store(false, Ordering::SeqCst);
+        self.spawn_reader(reader, client_id);
+        Ok(())
     }
 
     pub(crate) async fn close(&self) {
+        let _gate = self.open_gate.lock().await;
+
+        // Wait for a cleanup from an earlier cancelled close before starting a
+        // new transition. Holding this guard across the await keeps the handle
+        // stored if this close is itself cancelled.
+        let mut cleanup_slot = self.cleanup_task.lock().await;
+        if let Some(handle) = cleanup_slot.as_mut() {
+            let _ = handle.await;
+        }
+        *cleanup_slot = None;
+
         self.closed.store(true, Ordering::SeqCst);
-        if let Some(mut writer) = self.writer.lock().await.take() {
-            let _ = writer.shutdown().await;
+
+        // Take and abort the supervisor synchronously so it cannot publish a
+        // new writer once cleanup starts.
+        let supervisor = self
+            .reader_task
+            .lock()
+            .expect("reader task mutex poisoned")
+            .take();
+        if let Some(handle) = supervisor.as_ref() {
+            handle.abort();
         }
-        let mut pending = self.pending.lock().await;
-        for (_, tx) in pending.drain() {
-            let _ = tx.send(Err(SlockError::ClientClosed));
+
+        let writer = Arc::clone(&self.writer);
+        let pending = Arc::clone(&self.pending);
+        let cleanup = tokio::spawn(async move {
+            if let Some(handle) = supervisor {
+                let _ = handle.await;
+            }
+            if let Some(mut writer) = writer.lock().await.take() {
+                let _ = writer.shutdown().await;
+            }
+            let mut pending = pending.lock().await;
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::ClientClosed));
+            }
+        });
+        *cleanup_slot = Some(cleanup);
+        if let Some(handle) = cleanup_slot.as_mut() {
+            let _ = handle.await;
         }
+        *cleanup_slot = None;
+    }
+
+    async fn await_cleanup(&self) {
+        let mut cleanup_slot = self.cleanup_task.lock().await;
+        if let Some(handle) = cleanup_slot.as_mut() {
+            let _ = handle.await;
+        }
+        *cleanup_slot = None;
     }
 
     pub(crate) async fn pending_len(&self) -> usize {
@@ -173,12 +235,18 @@ impl Connection {
         let pending = Arc::clone(&self.pending);
         let writer = Arc::clone(&self.writer);
         let closed = Arc::clone(&self.closed);
-        let reader_running = Arc::clone(&self.reader_running);
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut reader = Some(reader);
             while !closed.load(Ordering::SeqCst) {
                 if let Some(mut current_reader) = reader.take() {
-                    if let Err(err) = read_loop(&mut current_reader, &pending, &closed).await {
+                    if let Err(err) = read_loop(
+                        &mut current_reader,
+                        &pending,
+                        &closed,
+                        options.max_frame_size,
+                    )
+                    .await
+                    {
                         close_writer(&writer).await;
                         if !closed.load(Ordering::SeqCst) {
                             wake_all_io(&pending, err).await;
@@ -206,8 +274,8 @@ impl Connection {
                 }
             }
             close_writer(&writer).await;
-            reader_running.store(false, Ordering::SeqCst);
         });
+        *self.reader_task.lock().expect("reader task mutex poisoned") = Some(handle);
     }
 }
 
@@ -216,11 +284,20 @@ async fn connect_once(
     options: &ClientOptions,
     client_id: Id16,
 ) -> Result<(OwnedReadHalf, OwnedWriteHalf, u8)> {
-    let stream = tokio::time::timeout(options.connect_timeout, TcpStream::connect(address))
-        .await
-        .map_err(|_| SlockError::CommandTimeout)??;
+    let deadline = tokio::time::Instant::now() + options.connect_timeout;
+    match tokio::time::timeout_at(deadline, connect_once_inner(address, options, client_id)).await {
+        Ok(result) => result,
+        Err(_) => Err(SlockError::CommandTimeout),
+    }
+}
+
+async fn connect_once_inner(
+    address: &str,
+    options: &ClientOptions,
+    client_id: Id16,
+) -> Result<(OwnedReadHalf, OwnedWriteHalf, u8)> {
+    let mut stream = TcpStream::connect(address).await?;
     stream.set_nodelay(options.tcp_nodelay)?;
-    let mut stream = stream;
 
     let init = Command::Init(InitCommand::with_client_id(client_id)).encode()?;
     stream.write_all(&init.header).await?;
@@ -249,13 +326,14 @@ async fn read_loop(
     reader: &mut OwnedReadHalf,
     pending: &Arc<AsyncMutex<HashMap<Id16, PendingSender>>>,
     closed: &Arc<AtomicBool>,
-) -> std::io::Result<()> {
+    max_frame_size: usize,
+) -> Result<()> {
     while !closed.load(Ordering::SeqCst) {
         let mut header = [0u8; HEADER_LEN];
         reader.read_exact(&mut header).await?;
 
         let data = if response_has_extra_data(&header) {
-            Some(read_extra_data(reader).await?)
+            Some(read_extra_data(reader, max_frame_size).await?)
         } else {
             None
         };
@@ -285,21 +363,44 @@ async fn close_writer(writer: &Arc<AsyncMutex<Option<OwnedWriteHalf>>>) {
     }
 }
 
-async fn wake_all_io(pending: &Arc<AsyncMutex<HashMap<Id16, PendingSender>>>, err: std::io::Error) {
+async fn wake_all_io(pending: &Arc<AsyncMutex<HashMap<Id16, PendingSender>>>, err: SlockError) {
     let mut pending = pending.lock().await;
-    for (_, tx) in pending.drain() {
-        let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
-            err.kind(),
-            err.to_string(),
-        ))));
+    match err {
+        SlockError::Io(err) => {
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
+                    err.kind(),
+                    err.to_string(),
+                ))));
+            }
+        }
+        SlockError::Protocol(message) => {
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::Protocol(message.clone())));
+            }
+        }
+        other => {
+            let message = other.to_string();
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::Protocol(message.clone())));
+            }
+        }
     }
 }
 
-async fn read_extra_data(reader: &mut OwnedReadHalf) -> std::io::Result<Vec<u8>> {
+async fn read_extra_data(reader: &mut OwnedReadHalf, max_frame_size: usize) -> Result<Vec<u8>> {
     let mut len_bytes = [0u8; 4];
     reader.read_exact(&mut len_bytes).await?;
     let len = u32::from_le_bytes(len_bytes) as usize;
-    let mut data = vec![0u8; len + 4];
+    if len > max_frame_size {
+        return Err(SlockError::Protocol(format!(
+            "extra data length {len} exceeds max frame size {max_frame_size}"
+        )));
+    }
+    let total = len.checked_add(4).ok_or_else(|| {
+        SlockError::Protocol(format!("extra data length {len} overflows frame size"))
+    })?;
+    let mut data = vec![0u8; total];
     reader.read_exact(&mut data[4..]).await?;
     Ok(data)
 }

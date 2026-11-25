@@ -325,3 +325,142 @@ fn callback_replset_timeout_fails_operation_once_and_clears_child_pending() {
     assert_eq!(nodes[0].client().pending_len(), 0);
     assert_eq!(error.lock().unwrap().as_deref(), Some("command timeout"));
 }
+
+#[test]
+fn callback_replset_tree_leaf_cancel_during_parent_stage_suppresses_callback_and_leaf() {
+    let replset = ReplsetClient::new(["127.0.0.1:5658", "127.0.0.1:5659"]).unwrap();
+    let nodes = replset.node_clients();
+    init_node(&nodes[0].client(), INIT_TYPE_FLAG_IS_LEADER);
+    init_node(&nodes[1].client(), 0);
+
+    let calls = Arc::new(Mutex::new(0));
+    let calls_clone = calls.clone();
+    let leaf = replset
+        .tree_lock("callback-replset-cancel-parent-root", 1, 1)
+        .load_child("callback-replset-cancel-parent-child")
+        .new_leaf_lock();
+    let handle = leaf
+        .acquire(move |_| {
+            *calls_clone.lock().unwrap() += 1;
+        })
+        .unwrap();
+
+    let child = nodes[0].writer_buffer().drain();
+    nodes[0]
+        .reader_buffer()
+        .push(&lock_response(&child, COMMAND_RESULT_SUCCED));
+    assert_eq!(nodes[0].client().handle_read().unwrap(), 1);
+    assert_eq!(*calls.lock().unwrap(), 0);
+
+    let parent = nodes[0].writer_buffer().drain();
+    assert!(handle.cancel().unwrap());
+    assert_eq!(nodes[0].client().pending_len(), 0);
+
+    nodes[0]
+        .reader_buffer()
+        .push(&lock_response(&parent, COMMAND_RESULT_SUCCED));
+    assert_eq!(nodes[0].client().handle_read().unwrap(), 0);
+    assert!(nodes[0].writer_buffer().is_empty());
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+#[test]
+fn callback_replset_tree_leaf_cancel_during_leaf_stage_suppresses_callback() {
+    let replset = ReplsetClient::new(["127.0.0.1:5658", "127.0.0.1:5659"]).unwrap();
+    let nodes = replset.node_clients();
+    init_node(&nodes[0].client(), INIT_TYPE_FLAG_IS_LEADER);
+    init_node(&nodes[1].client(), 0);
+
+    let calls = Arc::new(Mutex::new(0));
+    let calls_clone = calls.clone();
+    let leaf = replset
+        .tree_lock("callback-replset-cancel-leaf-root", 1, 1)
+        .load_child("callback-replset-cancel-leaf-child")
+        .new_leaf_lock();
+    let handle = leaf
+        .acquire(move |_| {
+            *calls_clone.lock().unwrap() += 1;
+        })
+        .unwrap();
+
+    let child = nodes[0].writer_buffer().drain();
+    nodes[0]
+        .reader_buffer()
+        .push(&lock_response(&child, COMMAND_RESULT_SUCCED));
+    assert_eq!(nodes[0].client().handle_read().unwrap(), 1);
+
+    let parent = nodes[0].writer_buffer().drain();
+    nodes[0]
+        .reader_buffer()
+        .push(&lock_response(&parent, COMMAND_RESULT_SUCCED));
+    assert_eq!(nodes[0].client().handle_read().unwrap(), 1);
+    assert_eq!(*calls.lock().unwrap(), 0);
+
+    let leaf_request = nodes[0].writer_buffer().drain();
+    assert!(handle.cancel().unwrap());
+    assert_eq!(nodes[0].client().pending_len(), 0);
+
+    nodes[0]
+        .reader_buffer()
+        .push(&lock_response(&leaf_request, COMMAND_RESULT_SUCCED));
+    assert_eq!(nodes[0].client().handle_read().unwrap(), 0);
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+#[test]
+fn callback_replset_tree_leaf_cancel_after_retry_redirect_during_parent_stage() {
+    let replset = ReplsetClient::new(["127.0.0.1:5658", "127.0.0.1:5659"]).unwrap();
+    let nodes = replset.node_clients();
+    init_node(&nodes[0].client(), INIT_TYPE_FLAG_IS_LEADER);
+    init_node(&nodes[1].client(), 0);
+
+    let calls = Arc::new(Mutex::new(0));
+    let calls_clone = calls.clone();
+    let leaf = replset
+        .tree_lock("callback-replset-cancel-retry-root", 1, 1)
+        .load_child("callback-replset-cancel-retry-child")
+        .new_leaf_lock();
+    let handle = leaf
+        .acquire(move |_| {
+            *calls_clone.lock().unwrap() += 1;
+        })
+        .unwrap();
+
+    let first = nodes[0].writer_buffer().drain();
+    nodes[0]
+        .reader_buffer()
+        .push(&lock_response(&first, COMMAND_RESULT_STATE_ERROR));
+    assert_eq!(nodes[0].client().handle_read().unwrap(), 1);
+    assert_eq!(handle.transport().unwrap().node_index(), 1);
+
+    let retry = nodes[1].writer_buffer().drain();
+    nodes[1]
+        .reader_buffer()
+        .push(&lock_response(&retry, COMMAND_RESULT_SUCCED));
+    assert_eq!(nodes[1].client().handle_read().unwrap(), 1);
+    assert_eq!(*calls.lock().unwrap(), 0);
+
+    let parent_transport = handle.transport().unwrap();
+    let parent = parent_transport.writer_buffer().drain();
+    assert!(handle.cancel().unwrap());
+    assert_eq!(parent_transport.client().pending_len(), 0);
+
+    parent_transport
+        .reader_buffer()
+        .push(&lock_response(&parent, COMMAND_RESULT_SUCCED));
+    assert_eq!(parent_transport.client().handle_read().unwrap(), 0);
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+#[test]
+fn callback_replset_tree_leaf_initial_enqueue_failure_does_not_leak_operation() {
+    let replset = ReplsetClient::new(["127.0.0.1:5658", "127.0.0.1:5659"]).unwrap();
+    let leaf = replset
+        .tree_lock("callback-replset-no-live-root", 1, 1)
+        .load_child("callback-replset-no-live-child")
+        .new_leaf_lock();
+
+    let result = leaf.acquire(|_| {});
+    assert!(matches!(result, Err(SlockError::NotConnected)));
+    assert_eq!(replset.next_deadline(), None);
+}

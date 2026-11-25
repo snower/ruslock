@@ -356,3 +356,246 @@ fn is_lock_not_own(err: &SlockError) -> bool {
 fn is_lock_timeout(err: &SlockError) -> bool {
     matches!(err, SlockError::LockTimeout(_))
 }
+
+#[tokio::test]
+async fn async_open_times_out_when_init_response_is_silent() {
+    let address = start_server(|mut stream| async move {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    })
+    .await;
+
+    let options = ClientOptions {
+        connect_timeout: Duration::from_millis(50),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    let start = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(1), client.open())
+        .await
+        .expect("open must be bounded by connect_timeout");
+    assert!(matches!(result, Err(SlockError::CommandTimeout)));
+    assert!(start.elapsed() < Duration::from_secs(1));
+}
+
+#[tokio::test]
+async fn async_cancelled_open_does_not_block_next_open() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let (first_seen_tx, first_seen_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        first.read_exact(&mut init).await.unwrap();
+        first_seen_tx.send(()).unwrap();
+        // Give the cancelled open time to drop its socket before accepting again.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(first);
+
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        second.read_exact(&mut init).await.unwrap();
+        second.write_all(&init_response(&init)).await.unwrap();
+        let mut ping = [0u8; 64];
+        second.read_exact(&mut ping).await.unwrap();
+        second.write_all(&ping_response(&ping)).await.unwrap();
+    });
+
+    let options = ClientOptions {
+        connect_timeout: Duration::from_secs(2),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    let opener = client.clone();
+    let first_open = tokio::spawn(async move { opener.open().await });
+    first_seen_rx.await.unwrap();
+
+    first_open.abort();
+    assert!(first_open.await.unwrap_err().is_cancelled());
+
+    client.open().await.unwrap();
+    assert!(client.ping().await.unwrap());
+    client.close().await;
+}
+
+#[tokio::test]
+async fn async_concurrent_open_waits_for_init_handshake() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let (init_seen_tx, init_seen_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        init_seen_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+        let mut ping = [0u8; 64];
+        stream.read_exact(&mut ping).await.unwrap();
+        stream.write_all(&ping_response(&ping)).await.unwrap();
+    });
+
+    let options = ClientOptions {
+        connect_timeout: Duration::from_secs(2),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    let first_client = client.clone();
+    let first_open = tokio::spawn(async move { first_client.open().await });
+    init_seen_rx.await.unwrap();
+
+    let second_client = client.clone();
+    let second_open = tokio::spawn(async move { second_client.open().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !first_open.is_finished(),
+        "first open reported ready before INIT completed"
+    );
+    assert!(
+        !second_open.is_finished(),
+        "second open reported ready before INIT completed"
+    );
+
+    release_tx.send(()).unwrap();
+    first_open.await.unwrap().unwrap();
+    second_open.await.unwrap().unwrap();
+    assert!(client.ping().await.unwrap());
+    client.close().await;
+}
+
+#[tokio::test]
+async fn async_close_then_reopen_ping_uses_new_reader() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        first.read_exact(&mut init).await.unwrap();
+        first.write_all(&init_response(&init)).await.unwrap();
+        // Keep the first connection open. A leaked reader would stay blocked here.
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        second.read_exact(&mut init).await.unwrap();
+        second.write_all(&init_response(&init)).await.unwrap();
+        let mut ping = [0u8; 64];
+        second.read_exact(&mut ping).await.unwrap();
+        second.write_all(&ping_response(&ping)).await.unwrap();
+        drop(first);
+    });
+
+    let client = Client::connect(address).await.unwrap();
+    client.close().await;
+    client.open().await.unwrap();
+    assert!(client.ping().await.unwrap());
+    client.close().await;
+}
+
+#[tokio::test]
+async fn async_cancelled_close_drains_pending_and_reopens() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let (command_seen_tx, command_seen_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        first.read_exact(&mut init).await.unwrap();
+        first.write_all(&init_response(&init)).await.unwrap();
+
+        // Accept a command but never answer it, leaving a pending request.
+        let mut command = [0u8; 64];
+        first.read_exact(&mut command).await.unwrap();
+        command_seen_tx.send(()).unwrap();
+
+        // The cancelled close's cleanup must remove the first writer, but a new
+        // connection can still be accepted while the first socket drains.
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut init = [0u8; 64];
+        second.read_exact(&mut init).await.unwrap();
+        second.write_all(&init_response(&init)).await.unwrap();
+        let mut ping = [0u8; 64];
+        second.read_exact(&mut ping).await.unwrap();
+        second.write_all(&ping_response(&ping)).await.unwrap();
+        drop(first);
+    });
+
+    let options = ClientOptions {
+        connect_timeout: Duration::from_secs(2),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    client.open().await.unwrap();
+
+    let mut lock = client.lock("cancelled-close", 30, 10);
+    let acquire = tokio::spawn(async move { lock.acquire().await });
+    command_seen_rx.await.unwrap();
+    assert_eq!(client.pending_len().await, 1);
+
+    // Poll close exactly once so it reaches its cleanup await, then cancel it.
+    let mut close = Box::pin(client.close());
+    let mut polled = false;
+    let mut completed = false;
+    std::future::poll_fn(|cx| {
+        if !polled {
+            polled = true;
+            if std::future::Future::poll(close.as_mut(), cx).is_ready() {
+                completed = true;
+            }
+        }
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(close);
+    assert!(!completed, "close completed before it could be cancelled");
+
+    // Reopen must wait for the retained cleanup task, then serve the new socket.
+    client.open().await.unwrap();
+    assert_eq!(client.pending_len().await, 0);
+    assert!(client.ping().await.unwrap());
+    let err = acquire.await.unwrap().unwrap_err();
+    assert!(
+        matches!(err, SlockError::ClientClosed | SlockError::Io(_)),
+        "unexpected error: {err:?}"
+    );
+    client.close().await;
+}
+
+#[tokio::test]
+async fn async_rejects_oversized_extra_frame() {
+    let payload = [0u8; 16];
+    let address = start_server(move |mut stream| async move {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).await.unwrap();
+        stream.write_all(&init_response(&init)).await.unwrap();
+
+        let mut acquire = [0u8; 64];
+        stream.read_exact(&mut acquire).await.unwrap();
+        assert_eq!(acquire[2], COMMAND_TYPE_LOCK);
+        read_extra_if_present(&mut stream, &acquire).await;
+        let response = lock_response(&acquire, COMMAND_RESULT_SUCCED, Some(&payload));
+        stream.write_all(&response).await.unwrap();
+        stream
+            .write_all(&(payload.len() as u32).to_le_bytes())
+            .await
+            .unwrap();
+        stream.write_all(&payload).await.unwrap();
+    })
+    .await;
+
+    let options = ClientOptions {
+        max_frame_size: 8,
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    client.open().await.unwrap();
+    let mut lock = client.lock("async-max-frame", 0, 10);
+    let err = lock.acquire().await.unwrap_err();
+    assert!(
+        matches!(err, SlockError::Protocol(_)),
+        "unexpected error: {err:?}"
+    );
+    client.close().await;
+}

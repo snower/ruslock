@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use socket2::SockRef;
 
@@ -148,7 +149,9 @@ impl Connection {
                 let mut reader = Some(stream);
                 while !closed.load(Ordering::SeqCst) {
                     if let Some(mut stream) = reader.take() {
-                        if let Err(err) = read_loop(&mut stream, &pending, &closed) {
+                        if let Err(err) =
+                            read_loop(&mut stream, &pending, &closed, options.max_frame_size)
+                        {
                             close_writer(&writer);
                             if !closed.load(Ordering::SeqCst) {
                                 wake_all_io(&pending, err);
@@ -199,21 +202,24 @@ fn connect_once(
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| SlockError::Protocol(format!("address {address} did not resolve")))?;
-    let mut stream = TcpStream::connect_timeout(&socket_addr, options.connect_timeout)?;
+    let deadline = Instant::now() + options.connect_timeout;
+    let mut stream = TcpStream::connect_timeout(&socket_addr, remaining(deadline)?)?;
     stream.set_nodelay(options.tcp_nodelay)?;
     if options.tcp_keepalive {
         SockRef::from(&stream).set_keepalive(true)?;
     }
+    stream.set_read_timeout(Some(remaining(deadline)?))?;
+    stream.set_write_timeout(Some(remaining(deadline)?))?;
 
     let init = Command::Init(InitCommand::with_client_id(client_id)).encode()?;
-    stream.write_all(&init.header)?;
+    write_all_deadline(&mut stream, &init.header, deadline)?;
     if let Some(extra) = init.extra {
-        stream.write_all(&extra)?;
+        write_all_deadline(&mut stream, &extra, deadline)?;
     }
-    stream.flush()?;
+    flush_deadline(&mut stream, deadline)?;
 
     let mut response_header = [0u8; HEADER_LEN];
-    stream.read_exact(&mut response_header)?;
+    read_exact_deadline(&mut stream, &mut response_header, deadline)?;
     let response = decode_response(&response_header, None)?;
     if response.result_code() != COMMAND_RESULT_SUCCED {
         return Err(SlockError::Server {
@@ -224,6 +230,9 @@ fn connect_once(
         return Err(SlockError::Protocol("expected init result".to_string()));
     };
 
+    stream.set_read_timeout(None)?;
+    stream.set_write_timeout(None)?;
+
     let reader = stream.try_clone()?;
     Ok((stream, reader, result.init_type))
 }
@@ -232,13 +241,14 @@ fn read_loop(
     stream: &mut TcpStream,
     pending: &Arc<Mutex<HashMap<Id16, PendingSender>>>,
     closed: &Arc<AtomicBool>,
-) -> std::io::Result<()> {
+    max_frame_size: usize,
+) -> Result<()> {
     while !closed.load(Ordering::SeqCst) {
         let mut header = [0u8; HEADER_LEN];
         stream.read_exact(&mut header)?;
 
         let data = if response_has_extra_data(&header) {
-            Some(read_extra_data(stream)?)
+            Some(read_extra_data(stream, max_frame_size)?)
         } else {
             None
         };
@@ -272,21 +282,104 @@ fn close_writer(writer: &Arc<Mutex<Option<TcpStream>>>) {
     }
 }
 
-fn wake_all_io(pending: &Arc<Mutex<HashMap<Id16, PendingSender>>>, err: std::io::Error) {
+fn wake_all_io(pending: &Arc<Mutex<HashMap<Id16, PendingSender>>>, err: SlockError) {
     let mut pending = pending.lock().expect("pending mutex poisoned");
-    for (_, tx) in pending.drain() {
-        let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
-            err.kind(),
-            err.to_string(),
-        ))));
+    match err {
+        SlockError::Io(err) => {
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::Io(std::io::Error::new(
+                    err.kind(),
+                    err.to_string(),
+                ))));
+            }
+        }
+        SlockError::Protocol(message) => {
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::Protocol(message.clone())));
+            }
+        }
+        other => {
+            let message = other.to_string();
+            for (_, tx) in pending.drain() {
+                let _ = tx.send(Err(SlockError::Protocol(message.clone())));
+            }
+        }
     }
 }
 
-fn read_extra_data(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+fn remaining(deadline: Instant) -> std::io::Result<Duration> {
+    match deadline.checked_duration_since(Instant::now()) {
+        Some(remaining) if !remaining.is_zero() => Ok(remaining),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "connect timed out",
+        )),
+    }
+}
+
+fn write_all_deadline(
+    stream: &mut TcpStream,
+    mut buf: &[u8],
+    deadline: Instant,
+) -> std::io::Result<()> {
+    while !buf.is_empty() {
+        stream.set_write_timeout(Some(remaining(deadline)?))?;
+        match stream.write(buf) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "failed to write whole buffer",
+                ))
+            }
+            Ok(written) => buf = &buf[written..],
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+fn read_exact_deadline(
+    stream: &mut TcpStream,
+    buf: &mut [u8],
+    deadline: Instant,
+) -> std::io::Result<()> {
+    let mut filled = 0usize;
+    while filled < buf.len() {
+        stream.set_read_timeout(Some(remaining(deadline)?))?;
+        match stream.read(&mut buf[filled..]) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "failed to fill whole buffer",
+                ))
+            }
+            Ok(read) => filled += read,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+fn flush_deadline(stream: &mut TcpStream, deadline: Instant) -> std::io::Result<()> {
+    stream.set_write_timeout(Some(remaining(deadline)?))?;
+    stream.flush()
+}
+
+fn read_extra_data(stream: &mut TcpStream, max_frame_size: usize) -> Result<Vec<u8>> {
     let mut len_bytes = [0u8; 4];
     stream.read_exact(&mut len_bytes)?;
     let len = u32::from_le_bytes(len_bytes) as usize;
-    let mut data = vec![0u8; len + 4];
+    if len > max_frame_size {
+        return Err(SlockError::Protocol(format!(
+            "extra data length {len} exceeds max frame size {max_frame_size}"
+        )));
+    }
+    let total = len.checked_add(4).ok_or_else(|| {
+        SlockError::Protocol(format!("extra data length {len} overflows frame size"))
+    })?;
+    let mut data = vec![0u8; total];
     stream.read_exact(&mut data[4..])?;
     Ok(data)
 }

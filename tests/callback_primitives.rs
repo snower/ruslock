@@ -248,3 +248,33 @@ fn callback_tree_leaf_child_acquire_uses_continuation_and_single_user_callback()
     assert_eq!(client.handle_read().unwrap(), 1);
     assert_eq!(*calls.lock().unwrap(), 1);
 }
+
+#[test]
+fn callback_tree_leaf_cancel_during_parent_stage_stops_single_client_chain() {
+    let client = Client::new();
+    init_client(&client);
+    let root = client.tree_lock("callback-tree-cancel-root", 5, 6);
+    let child = root.load_child("callback-tree-cancel-child");
+    let leaf = child.new_leaf_lock();
+    let calls = Arc::new(Mutex::new(0));
+    let calls_clone = calls.clone();
+
+    let handle = leaf
+        .acquire(move |_| {
+            *calls_clone.lock().unwrap() += 1;
+        })
+        .unwrap();
+
+    let child_check = client.writer_buffer().drain();
+    push_lock_response(&client, &child_check, COMMAND_RESULT_LOCKED_ERROR, None);
+    assert_eq!(client.handle_read().unwrap(), 1);
+
+    let parent_check = client.writer_buffer().drain();
+    assert!(handle.cancel().unwrap());
+    assert_eq!(client.pending_len(), 0);
+
+    push_lock_response(&client, &parent_check, COMMAND_RESULT_SUCCED, None);
+    assert_eq!(client.handle_read().unwrap(), 0);
+    assert!(client.writer_buffer().is_empty());
+    assert_eq!(*calls.lock().unwrap(), 0);
+}

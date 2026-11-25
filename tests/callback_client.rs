@@ -132,6 +132,50 @@ fn callback_disconnect_and_timeout_fail_pending_callbacks() {
 }
 
 #[test]
+fn callback_timeout_ignores_late_response_and_delivers_next_batch_response() {
+    let client = Client::new();
+    init_client(&client);
+
+    let timed_out_calls = Arc::new(Mutex::new(0));
+    let timed_out_calls_clone = timed_out_calls.clone();
+    client
+        .ping(move |result| {
+            result.unwrap_err();
+            *timed_out_calls_clone.lock().unwrap() += 1;
+        })
+        .unwrap();
+    let timed_out_request = client.writer_buffer().drain();
+    assert_eq!(client.pending_len(), 1);
+    assert_eq!(
+        client
+            .handle_timeout(Instant::now() + Duration::from_secs(121))
+            .unwrap(),
+        1
+    );
+    assert_eq!(client.pending_len(), 0);
+    assert_eq!(*timed_out_calls.lock().unwrap(), 1);
+
+    let valid_calls = Arc::new(Mutex::new(0));
+    let valid_calls_clone = valid_calls.clone();
+    client
+        .ping(move |result| {
+            result.unwrap();
+            *valid_calls_clone.lock().unwrap() += 1;
+        })
+        .unwrap();
+    let valid_request = client.writer_buffer().drain();
+
+    let mut batch = Vec::new();
+    batch.extend_from_slice(&ping_response(&timed_out_request));
+    batch.extend_from_slice(&ping_response(&valid_request));
+    client.reader_buffer().push(&batch);
+
+    assert_eq!(client.handle_read().unwrap(), 1);
+    assert_eq!(*timed_out_calls.lock().unwrap(), 1);
+    assert_eq!(*valid_calls.lock().unwrap(), 1);
+}
+
+#[test]
 fn callback_unknown_response_is_protocol_error() {
     let client = Client::new();
     init_client(&client);

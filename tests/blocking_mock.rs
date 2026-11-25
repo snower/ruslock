@@ -231,6 +231,72 @@ fn blocking_lock_success_updates_current_data() {
 }
 
 #[test]
+fn open_times_out_when_init_response_is_silent() {
+    let address = start_server(|mut stream| {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        assert_eq!(init[2], COMMAND_TYPE_INIT);
+        thread::sleep(Duration::from_secs(2));
+    });
+
+    let options = ClientOptions {
+        connect_timeout: Duration::from_millis(50),
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    let start = Instant::now();
+    let err = client.open().unwrap_err();
+    assert!(
+        matches!(err, SlockError::Io(_)),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "open was not bounded by connect_timeout"
+    );
+}
+
+#[test]
+fn rejects_oversized_extra_frame() {
+    let payload = [0u8; 16];
+    let address = start_server(move |mut stream| {
+        let mut init = [0u8; 64];
+        stream.read_exact(&mut init).unwrap();
+        stream.write_all(&init_response(&init)).unwrap();
+
+        let mut acquire = [0u8; 64];
+        stream.read_exact(&mut acquire).unwrap();
+        assert_eq!(acquire[2], COMMAND_TYPE_LOCK);
+        read_extra_if_present(&mut stream, &acquire);
+        stream
+            .write_all(&lock_response(
+                &acquire,
+                COMMAND_RESULT_SUCCED,
+                Some(&payload),
+            ))
+            .unwrap();
+        stream
+            .write_all(&(payload.len() as u32).to_le_bytes())
+            .unwrap();
+        stream.write_all(&payload).unwrap();
+    });
+
+    let options = ClientOptions {
+        max_frame_size: 8,
+        ..ClientOptions::default()
+    };
+    let client = Client::with_options(address, options);
+    client.open().unwrap();
+    let mut lock = client.lock("blocking-max-frame", 0, 10);
+    let err = lock.acquire().unwrap_err();
+    assert!(
+        matches!(err, SlockError::Protocol(_)),
+        "unexpected error: {err:?}"
+    );
+    client.close();
+}
+
+#[test]
 fn blocking_lock_maps_server_result_codes() {
     for (result, expected) in [
         (COMMAND_RESULT_LOCKED_ERROR, "locked"),

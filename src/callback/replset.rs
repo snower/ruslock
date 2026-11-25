@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::callback::client::{
-    Client, ClientObserver, CommandCallback, RequestHandle, RequestOwner,
+    CancelClaim, Client, ClientObserver, CommandCallback, RequestControl, RequestHandle,
+    RequestOwner,
 };
 use crate::callback::database::{ClientBackend, Database};
 use crate::callback::handle::{ReplsetNodeClient, RequestTransport};
@@ -83,6 +84,7 @@ struct ReplsetOperation {
     command: Command,
     active_request: Arc<Mutex<Option<Id16>>>,
     active_transport: Arc<Mutex<Option<RequestTransport>>>,
+    control: Arc<RequestControl>,
     callback: SharedCommandCallback,
     deadline: Instant,
     attempts: usize,
@@ -302,30 +304,37 @@ impl ReplsetClient {
         let operation_id = command.request_id();
         let encoded = command.encode()?;
         let callback = Arc::new(Mutex::new(Some(Box::new(callback) as CommandCallback)));
-        self.inner.insert_operation(
-            operation_id,
-            ReplsetOperation {
-                command,
-                active_request: active_request.clone(),
-                active_transport: active_transport.clone(),
-                callback,
-                deadline: Instant::now()
-                    + encoded.timeout
-                    + self.inner.options.command_timeout_grace,
-                attempts: 0,
-            },
-        );
+        let control = Arc::new(RequestControl::default());
+        let operation_control = control.clone();
+        control.begin(operation_id, || {
+            self.inner.insert_operation(
+                operation_id,
+                ReplsetOperation {
+                    command,
+                    active_request: active_request.clone(),
+                    active_transport: active_transport.clone(),
+                    control: operation_control,
+                    callback,
+                    deadline: Instant::now()
+                        + encoded.timeout
+                        + self.inner.options.command_timeout_grace,
+                    attempts: 0,
+                },
+            );
+            Ok(())
+        })?;
         if let Err(err) = self.inner.clone().send_attempt(operation_id, None) {
             self.inner.remove_operation(operation_id);
+            control.clear(operation_id);
             return Err(err);
         }
         Ok(RequestHandle {
             request_id: operation_id,
             active_request,
             active_transport,
+            control,
             owner: RequestOwner::Replset {
                 replset: Arc::downgrade(&self.inner),
-                operation_id,
             },
         })
     }
@@ -335,6 +344,7 @@ impl ReplsetClient {
         command: Command,
         active_request: Arc<Mutex<Option<Id16>>>,
         active_transport: Arc<Mutex<Option<RequestTransport>>>,
+        control: Arc<RequestControl>,
         callback: F,
     ) -> Result<Id16>
     where
@@ -343,20 +353,29 @@ impl ReplsetClient {
         let operation_id = command.request_id();
         let encoded = command.encode()?;
         let callback = Arc::new(Mutex::new(Some(Box::new(callback) as CommandCallback)));
-        self.inner.insert_operation(
-            operation_id,
-            ReplsetOperation {
-                command,
-                active_request,
-                active_transport,
-                callback,
-                deadline: Instant::now()
-                    + encoded.timeout
-                    + self.inner.options.command_timeout_grace,
-                attempts: 0,
-            },
-        );
-        self.inner.clone().send_attempt(operation_id, None)?;
+        let operation_control = control.clone();
+        control.begin(operation_id, || {
+            self.inner.insert_operation(
+                operation_id,
+                ReplsetOperation {
+                    command,
+                    active_request,
+                    active_transport,
+                    control: operation_control,
+                    callback,
+                    deadline: Instant::now()
+                        + encoded.timeout
+                        + self.inner.options.command_timeout_grace,
+                    attempts: 0,
+                },
+            );
+            Ok(())
+        })?;
+        if let Err(err) = self.inner.clone().send_attempt(operation_id, None) {
+            self.inner.remove_operation(operation_id);
+            control.clear(operation_id);
+            return Err(err);
+        }
         Ok(operation_id)
     }
 }
@@ -397,13 +416,15 @@ impl ReplsetInner {
         }
     }
 
-    pub(crate) fn cancel_operation(&self, operation_id: Id16) -> Result<bool> {
-        let operation = self.remove_operation(operation_id);
-        let Some(operation) = operation else {
-            return Ok(false);
-        };
-        cancel_active_request(&operation)?;
-        Ok(true)
+    pub(crate) fn cancel_control(&self, control: &Arc<RequestControl>) -> Result<bool> {
+        match control.claim(|operation_id| self.remove_operation(operation_id)) {
+            CancelClaim::Claimed(operation) => {
+                cancel_active_request(&operation)?;
+                Ok(true)
+            }
+            CancelClaim::Gap => Ok(true),
+            CancelClaim::Miss => Ok(false),
+        }
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -431,11 +452,17 @@ impl ReplsetInner {
                 .collect::<Vec<_>>();
             expired_ids
                 .into_iter()
-                .filter_map(|operation_id| state.operations.remove(&operation_id))
+                .filter_map(|operation_id| {
+                    state
+                        .operations
+                        .remove(&operation_id)
+                        .map(|operation| (operation_id, operation))
+                })
                 .collect::<Vec<_>>()
         };
         let count = expired.len();
-        for operation in expired {
+        for (operation_id, operation) in expired {
+            operation.control.clear(operation_id);
             cancel_active_request(&operation)?;
             if let Some(callback) = operation
                 .callback
@@ -489,7 +516,7 @@ impl ReplsetInner {
         let target_index = self
             .select_target(exclude)
             .ok_or(SlockError::NotConnected)?;
-        let (command, active_request, active_transport, request_id) = {
+        let (command, active_request, active_transport, control, request_id) = {
             let mut state = self
                 .state
                 .lock()
@@ -509,9 +536,13 @@ impl ReplsetInner {
                 command,
                 operation.active_request.clone(),
                 operation.active_transport.clone(),
+                operation.control.clone(),
                 request_id,
             )
         };
+        if !control.is_current(operation_id) {
+            return Err(SlockError::ClientClosed);
+        }
         let node = &self.nodes[target_index];
         let transport =
             RequestTransport::new(target_index, node.address.clone(), node.client.clone());
@@ -520,12 +551,23 @@ impl ReplsetInner {
             .expect("callback replset active transport mutex poisoned") = Some(transport);
         let weak = Arc::downgrade(&self);
         let child = node.client.clone();
-        child.send_command_on_handle(command, active_request, active_transport, move |result| {
-            let Some(replset) = weak.upgrade() else {
-                return;
-            };
-            replset.handle_attempt_result(operation_id, target_index, request_id, result);
-        })?;
+        let child_control = Arc::new(RequestControl::default());
+        let sent_request_id = child.send_command_on_handle(
+            command,
+            active_request,
+            active_transport,
+            child_control,
+            move |result| {
+                let Some(replset) = weak.upgrade() else {
+                    return;
+                };
+                replset.handle_attempt_result(operation_id, target_index, request_id, result);
+            },
+        )?;
+        if control.is_cancelled() {
+            let _ = child.cancel_request(sent_request_id);
+            return Err(SlockError::ClientClosed);
+        }
         Ok(())
     }
 
@@ -553,6 +595,7 @@ impl ReplsetInner {
         let Some(operation) = self.remove_operation(operation_id) else {
             return;
         };
+        operation.control.clear(operation_id);
         let callback = operation
             .callback
             .lock()

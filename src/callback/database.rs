@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::callback::client::{Client, RequestHandle, RequestOwner};
+use crate::callback::client::{Client, RequestControl, RequestHandle, RequestOwner};
 use crate::callback::handle::RequestTransport;
 use crate::callback::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
@@ -40,18 +40,27 @@ impl ClientBackend {
         command: Command,
         active_request: Arc<Mutex<Option<Id16>>>,
         active_transport: Arc<Mutex<Option<RequestTransport>>>,
+        control: Arc<RequestControl>,
         callback: F,
     ) -> Result<Id16>
     where
         F: FnOnce(Result<CommandResult>) + Send + 'static,
     {
         match self {
-            Self::Single(client) => {
-                client.send_command_on_handle(command, active_request, active_transport, callback)
-            }
-            Self::Replset(client) => {
-                client.send_command_on_handle(command, active_request, active_transport, callback)
-            }
+            Self::Single(client) => client.send_command_on_handle(
+                command,
+                active_request,
+                active_transport,
+                control,
+                callback,
+            ),
+            Self::Replset(client) => client.send_command_on_handle(
+                command,
+                active_request,
+                active_transport,
+                control,
+                callback,
+            ),
         }
     }
 }
@@ -197,21 +206,26 @@ impl Database {
         command: Command,
         active_request: Arc<Mutex<Option<Id16>>>,
         active_transport: Arc<Mutex<Option<RequestTransport>>>,
+        control: Arc<RequestControl>,
         callback: F,
     ) -> Result<Id16>
     where
         F: FnOnce(Result<CommandResult>) + Send + 'static,
     {
-        self.client
-            .send_command_on_handle(command, active_request, active_transport, callback)
+        self.client.send_command_on_handle(
+            command,
+            active_request,
+            active_transport,
+            control,
+            callback,
+        )
     }
 
-    pub(crate) fn request_owner(&self, operation_id: Id16) -> RequestOwner {
+    pub(crate) fn request_owner(&self) -> RequestOwner {
         match &self.client {
             ClientBackend::Single(client) => RequestOwner::Single(Arc::downgrade(&client.inner)),
             ClientBackend::Replset(client) => RequestOwner::Replset {
                 replset: Arc::downgrade(&client.inner),
-                operation_id,
             },
         }
     }
