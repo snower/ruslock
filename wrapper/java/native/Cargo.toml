@@ -1,0 +1,19 @@
+[package]
+name = "ruslock-java"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ruslock_java"
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = "0.21.1"
+ruslock = { path = "../../..", default-features = false, features = ["aio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

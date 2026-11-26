@@ -1,0 +1,5 @@
+# Maven build output
+target/
+
+# Standalone native crate output when cargo is run directly
+native/target/

@@ -1,0 +1,6 @@
+# Preserve the pinned Jaslock test bytes, including its CRLF line endings.
+src/test/java/io/github/snower/jaslock/ClientTest.java -text whitespace=cr-at-eol
+
+# The copied source and generated API fixture retain their original formatting.
+src/main/java/io/github/snower/jaslock/commands/PingCommand.java whitespace=-blank-at-eof
+tools/baseline-api-signatures.txt whitespace=-blank-at-eol,-blank-at-eof

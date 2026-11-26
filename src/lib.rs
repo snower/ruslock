@@ -70,6 +70,9 @@ pub mod blocking;
 #[cfg(feature = "aio")]
 pub mod aio;
 
+#[cfg(feature = "aio")]
+pub mod binding;
+
 pub use crate::data::{LockData, LockResultData};
 pub use crate::error::{Result, SlockError};
 pub use crate::key::Key16;

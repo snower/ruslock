@@ -1,0 +1,910 @@
+# RusLock Java API signatures
+# label: jaslock 85c2d2b
+# jar: jaslock-1.1.5.jar
+# jar-sha256: 29bad06bfb5fd277d22f7cb15a4450944f0ef0383893d1ab078d63fa9bc881d5
+# jdk: openjdk version "1.8.0_462"
+# generator: wrapper/java/tools/ApiSignature.java
+TYPE public abstract class io.github.snower.jaslock.AbstractExecution
+  SUPER java.lang.Object
+  CTOR public AbstractExecution(io.github.snower.jaslock.SlockDatabase, byte[], int, int)
+  CTOR public AbstractExecution(io.github.snower.jaslock.SlockDatabase, byte[], int, int, short, byte)
+  FIELD protected byte rCount
+  FIELD protected byte[] lockKey
+  FIELD protected final io.github.snower.jaslock.SlockDatabase database
+  FIELD protected int expried
+  FIELD protected int timeout
+  FIELD protected io.github.snower.jaslock.datas.LockResultData currentLockData
+  FIELD protected short count
+  METHOD public byte getRCount()
+  METHOD public byte[] getCurrentLockDataAsBytes()
+  METHOD public io.github.snower.jaslock.datas.LockResultData getCurrentLockData()
+  METHOD public java.lang.Long getCurrentLockDataAsLong()
+  METHOD public java.lang.String getCurrentLockDataAsString()
+  METHOD public java.util.List<byte[]> getCurrentLockDataAsList()
+  METHOD public java.util.List<java.lang.String> getCurrentLockDataAsStringList()
+  METHOD public java.util.Map<java.lang.String, byte[]> getCurrentLockDataAsMap()
+  METHOD public java.util.Map<java.lang.String, java.lang.String> getCurrentLockDataAsStringMap()
+  METHOD public short getCount()
+  METHOD public short getExpried()
+  METHOD public short getExpriedFlag()
+  METHOD public short getTimeout()
+  METHOD public short getTimeoutFlag()
+  METHOD public void setCount(short)
+  METHOD public void setExpried(short)
+  METHOD public void setExpriedFlag(short)
+  METHOD public void setRCount(byte)
+  METHOD public void setTimeout(short)
+  METHOD public void setTimeoutFlag(short)
+  METHOD public void updateExpriedFlag(short)
+  METHOD public void updateTimeoutFlag(short)
+
+TYPE public class io.github.snower.jaslock.Event
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public Event(io.github.snower.jaslock.SlockDatabase, byte[], int, int)
+  CTOR public Event(io.github.snower.jaslock.SlockDatabase, byte[], int, int, boolean)
+  CTOR public Event(io.github.snower.jaslock.SlockDatabase, java.lang.String, int, int)
+  CTOR public Event(io.github.snower.jaslock.SlockDatabase, java.lang.String, int, int, boolean)
+  METHOD public boolean isSet() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(byte[], java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(java.lang.String, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> isSet(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(byte[], java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(java.lang.String, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> wait(int, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> waitAndTimeoutRetryClear(int, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with()
+  METHOD public void clear() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void clear(byte[]) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void clear(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void clear(java.lang.String) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set(byte[]) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set(java.lang.String) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wait(int) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void waitAndTimeoutRetryClear(int) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.GroupEvent
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public GroupEvent(io.github.snower.jaslock.SlockDatabase, byte[], long, long, int, int)
+  CTOR public GroupEvent(io.github.snower.jaslock.SlockDatabase, java.lang.String, long, long, int, int)
+  METHOD public boolean isSet() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(byte[], java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(java.lang.String, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> clear(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> isSet(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(byte[], java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(java.lang.String, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> set(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> wait(int, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> waitAndTimeoutRetryClear(int, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> wakeup(byte[], java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> wakeup(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> wakeup(java.lang.String, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> wakeup(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with()
+  METHOD public long getClientId()
+  METHOD public long getVersionId()
+  METHOD public void clear() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void clear(byte[]) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void clear(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void clear(java.lang.String) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set(byte[]) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void set(java.lang.String) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wait(int) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void waitAndTimeoutRetryClear(int) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wakeup() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wakeup(byte[]) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wakeup(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wakeup(java.lang.String) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public abstract interface io.github.snower.jaslock.ISlockClient
+  METHOD public abstract boolean enableAsyncCallback()
+  METHOD public abstract boolean enableAsyncCallback(io.github.snower.jaslock.callback.CallbackExecutorManager)
+  METHOD public abstract boolean enableAsyncCallback(io.github.snower.jaslock.callback.ExecutorOption)
+  METHOD public abstract boolean ping() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public abstract io.github.snower.jaslock.Event newEvent(byte[], int, int, boolean)
+  METHOD public abstract io.github.snower.jaslock.Event newEvent(java.lang.String, int, int, boolean)
+  METHOD public abstract io.github.snower.jaslock.GroupEvent newGroupEvent(byte[], long, long, int, int)
+  METHOD public abstract io.github.snower.jaslock.GroupEvent newGroupEvent(java.lang.String, long, long, int, int)
+  METHOD public abstract io.github.snower.jaslock.ISlockClient tryOpen()
+  METHOD public abstract io.github.snower.jaslock.Lock newLock(byte[], int, int)
+  METHOD public abstract io.github.snower.jaslock.Lock newLock(java.lang.String, int, int)
+  METHOD public abstract io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int)
+  METHOD public abstract io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int, byte)
+  METHOD public abstract io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int)
+  METHOD public abstract io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int, byte)
+  METHOD public abstract io.github.snower.jaslock.PriorityLock newPriorityLock(byte[], byte, int, int)
+  METHOD public abstract io.github.snower.jaslock.PriorityLock newPriorityLock(java.lang.String, byte, int, int)
+  METHOD public abstract io.github.snower.jaslock.ReadWriteLock newReadWriteLock(byte[], int, int)
+  METHOD public abstract io.github.snower.jaslock.ReadWriteLock newReadWriteLock(java.lang.String, int, int)
+  METHOD public abstract io.github.snower.jaslock.ReentrantLock newReentrantLock(byte[], int, int)
+  METHOD public abstract io.github.snower.jaslock.ReentrantLock newReentrantLock(java.lang.String, int, int)
+  METHOD public abstract io.github.snower.jaslock.Semaphore newSemaphore(byte[], short, int, int)
+  METHOD public abstract io.github.snower.jaslock.Semaphore newSemaphore(java.lang.String, short, int, int)
+  METHOD public abstract io.github.snower.jaslock.SlockDatabase selectDatabase(byte)
+  METHOD public abstract io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double)
+  METHOD public abstract io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double, byte)
+  METHOD public abstract io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double)
+  METHOD public abstract io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double, byte)
+  METHOD public abstract io.github.snower.jaslock.TreeLock newTreeLock(byte[], byte[], int, int)
+  METHOD public abstract io.github.snower.jaslock.TreeLock newTreeLock(byte[], int, int)
+  METHOD public abstract io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, int, int)
+  METHOD public abstract io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, java.lang.String, int, int)
+  METHOD public abstract io.github.snower.jaslock.commands.CommandResult sendCommand(io.github.snower.jaslock.commands.Command) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public abstract void close()
+  METHOD public abstract void open() throws io.github.snower.jaslock.exceptions.ClientUnconnectException, java.io.IOException
+  METHOD public abstract void sendCommand(io.github.snower.jaslock.commands.Command, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public abstract void setDefaultExpriedFlag(short)
+  METHOD public abstract void setDefaultTimeoutFlag(short)
+  METHOD public abstract void writeCommand(io.github.snower.jaslock.commands.Command) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.Lock
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public Lock(io.github.snower.jaslock.SlockDatabase, byte[], byte[], int, int, short, byte)
+  CTOR public Lock(io.github.snower.jaslock.SlockDatabase, byte[], int, int)
+  CTOR public Lock(io.github.snower.jaslock.SlockDatabase, java.lang.String, int, int)
+  METHOD public byte[] getLockId()
+  METHOD public byte[] getLockKey()
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.CommandResult show() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.CommandResult show(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.LockCommandResult acquire(byte) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.LockCommandResult acquire(byte, io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.LockCommandResult release(byte) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.LockCommandResult release(byte, io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.LockCommandResult releaseHeadRetoLockWait() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.commands.LockCommandResult releaseHeadRetoLockWait(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire(byte, io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire(byte, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release(byte, io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release(byte, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseHead() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseHead(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseHead(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseHead(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseHeadRetoLockWait(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseHeadRetoLockWait(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void show(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void show(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void update() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void update(io.github.snower.jaslock.datas.LockData) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void update(io.github.snower.jaslock.datas.LockData, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void update(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.MaxConcurrentFlow
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public MaxConcurrentFlow(io.github.snower.jaslock.SlockDatabase, byte[], short, int, int)
+  CTOR public MaxConcurrentFlow(io.github.snower.jaslock.SlockDatabase, byte[], short, int, int, byte)
+  CTOR public MaxConcurrentFlow(io.github.snower.jaslock.SlockDatabase, java.lang.String, short, int, int)
+  CTOR public MaxConcurrentFlow(io.github.snower.jaslock.SlockDatabase, java.lang.String, short, int, int, byte)
+  METHOD public byte getPriority()
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void setPriority(byte)
+
+TYPE public class io.github.snower.jaslock.PriorityLock
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public PriorityLock(io.github.snower.jaslock.SlockDatabase, byte[], byte, int, int)
+  CTOR public PriorityLock(io.github.snower.jaslock.SlockDatabase, byte[], byte, int, int, short)
+  CTOR public PriorityLock(io.github.snower.jaslock.SlockDatabase, java.lang.String, byte, int, int)
+  CTOR public PriorityLock(io.github.snower.jaslock.SlockDatabase, java.lang.String, byte, int, int, short)
+  METHOD public byte getPriority()
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void setPriority(byte)
+
+TYPE public class io.github.snower.jaslock.ReadWriteLock
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public ReadWriteLock(io.github.snower.jaslock.SlockDatabase, byte[], int, int)
+  CTOR public ReadWriteLock(io.github.snower.jaslock.SlockDatabase, java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquireRead(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquireWrite(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> releaseRead(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> releaseWrite(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquireRead() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquireWrite() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseRead() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void releaseWrite() throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.ReentrantLock
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public ReentrantLock(io.github.snower.jaslock.SlockDatabase, byte[], int, int)
+  CTOR public ReentrantLock(io.github.snower.jaslock.SlockDatabase, java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.Semaphore
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public Semaphore(io.github.snower.jaslock.SlockDatabase, byte[], short, int, int)
+  CTOR public Semaphore(io.github.snower.jaslock.SlockDatabase, java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> release(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.SlockClient
+  SUPER java.lang.Object
+  IMPLEMENTS java.lang.Runnable
+  IMPLEMENTS io.github.snower.jaslock.ISlockClient
+  CTOR protected SlockClient(java.lang.String, int, io.github.snower.jaslock.SlockReplsetClient, io.github.snower.jaslock.SlockDatabase[])
+  CTOR public SlockClient()
+  CTOR public SlockClient(java.lang.String)
+  CTOR public SlockClient(java.lang.String, int)
+  CTOR public SlockClient(java.lang.String, int, boolean)
+  METHOD protected io.github.snower.jaslock.commands.InitCommandResult initClient() throws java.io.IOException
+  METHOD protected void closeSocket()
+  METHOD protected void connect() throws java.io.IOException
+  METHOD protected void handleCommand(io.github.snower.jaslock.commands.CommandResult)
+  METHOD protected void handleInitCommand(io.github.snower.jaslock.commands.InitCommandResult)
+  METHOD protected void reconnect()
+  METHOD public boolean enableAsyncCallback()
+  METHOD public boolean enableAsyncCallback(io.github.snower.jaslock.callback.CallbackExecutorManager)
+  METHOD public boolean enableAsyncCallback(io.github.snower.jaslock.callback.ExecutorOption)
+  METHOD public boolean ping() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.Event newEvent(byte[], int, int, boolean)
+  METHOD public io.github.snower.jaslock.Event newEvent(java.lang.String, int, int, boolean)
+  METHOD public io.github.snower.jaslock.GroupEvent newGroupEvent(byte[], long, long, int, int)
+  METHOD public io.github.snower.jaslock.GroupEvent newGroupEvent(java.lang.String, long, long, int, int)
+  METHOD public io.github.snower.jaslock.ISlockClient tryOpen()
+  METHOD public io.github.snower.jaslock.Lock newLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.Lock newLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int, byte)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int, byte)
+  METHOD public io.github.snower.jaslock.PriorityLock newPriorityLock(byte[], byte, int, int)
+  METHOD public io.github.snower.jaslock.PriorityLock newPriorityLock(java.lang.String, byte, int, int)
+  METHOD public io.github.snower.jaslock.ReadWriteLock newReadWriteLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.ReadWriteLock newReadWriteLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.ReentrantLock newReentrantLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.ReentrantLock newReentrantLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.Semaphore newSemaphore(byte[], short, int, int)
+  METHOD public io.github.snower.jaslock.Semaphore newSemaphore(java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.SlockDatabase selectDatabase(byte)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double, byte)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double, byte)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(byte[], byte[], int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.commands.CommandResult sendCommand(io.github.snower.jaslock.commands.Command) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void close()
+  METHOD public void open() throws java.io.IOException
+  METHOD public void run()
+  METHOD public void sendCommand(io.github.snower.jaslock.commands.Command, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void setDefaultExpriedFlag(short)
+  METHOD public void setDefaultTimeoutFlag(short)
+  METHOD public void writeCommand(io.github.snower.jaslock.commands.Command) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE protected static final class io.github.snower.jaslock.SlockClient$BufferedInputStream
+  SUPER java.io.BufferedInputStream
+  CTOR public BufferedInputStream(java.io.InputStream)
+  CTOR public BufferedInputStream(java.io.InputStream, int)
+
+TYPE protected static final class io.github.snower.jaslock.SlockClient$BufferedOutputStream
+  SUPER java.io.BufferedOutputStream
+  CTOR public BufferedOutputStream(java.io.OutputStream)
+  CTOR public BufferedOutputStream(java.io.OutputStream, int)
+  METHOD public synchronized void flush() throws java.io.IOException
+  METHOD public void writeFlush(byte[]) throws java.io.IOException
+  METHOD public void writeFlush(byte[], int, int) throws java.io.IOException
+
+TYPE protected static final class io.github.snower.jaslock.SlockClient$BytesKey
+  SUPER java.lang.Object
+  CTOR public BytesKey(byte[])
+  METHOD public boolean equals(java.lang.Object)
+  METHOD public int hashCode()
+
+TYPE public class io.github.snower.jaslock.SlockDatabase
+  SUPER java.lang.Object
+  CTOR public SlockDatabase(io.github.snower.jaslock.ISlockClient, byte, short, short)
+  METHOD public byte getDbId()
+  METHOD public io.github.snower.jaslock.Event newEvent(byte[], int, int, boolean)
+  METHOD public io.github.snower.jaslock.Event newEvent(java.lang.String, int, int, boolean)
+  METHOD public io.github.snower.jaslock.GroupEvent newGroupEvent(byte[], long, long, int, int)
+  METHOD public io.github.snower.jaslock.GroupEvent newGroupEvent(java.lang.String, long, long, int, int)
+  METHOD public io.github.snower.jaslock.ISlockClient getClient() throws io.github.snower.jaslock.exceptions.ClientClosedException
+  METHOD public io.github.snower.jaslock.Lock newLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.Lock newLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int, byte)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int, byte)
+  METHOD public io.github.snower.jaslock.PriorityLock newPriorityLock(byte[], byte, int, int)
+  METHOD public io.github.snower.jaslock.PriorityLock newPriorityLock(java.lang.String, byte, int, int)
+  METHOD public io.github.snower.jaslock.ReadWriteLock newReadWriteLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.ReadWriteLock newReadWriteLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.ReentrantLock newReentrantLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.ReentrantLock newReentrantLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.Semaphore newSemaphore(byte[], short, int, int)
+  METHOD public io.github.snower.jaslock.Semaphore newSemaphore(java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double, byte)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double, byte)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(byte[], byte[], int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, java.lang.String, int, int)
+  METHOD public void close()
+  METHOD public void setDefaultExpriedFlag(short)
+  METHOD public void setDefaultTimeoutFlag(short)
+
+TYPE public class io.github.snower.jaslock.SlockReplsetClient
+  SUPER java.lang.Object
+  IMPLEMENTS io.github.snower.jaslock.ISlockClient
+  CTOR public SlockReplsetClient(java.lang.String)
+  CTOR public SlockReplsetClient(java.lang.String, boolean)
+  CTOR public SlockReplsetClient(java.lang.String[])
+  CTOR public SlockReplsetClient(java.lang.String[], boolean)
+  METHOD protected boolean doPendingRequestCommand(io.github.snower.jaslock.SlockClient, io.github.snower.jaslock.commands.Command)
+  METHOD protected boolean hasLivedClient()
+  METHOD protected java.util.concurrent.ConcurrentHashMap<io.github.snower.jaslock.SlockClient$BytesKey, io.github.snower.jaslock.commands.Command> getRequests()
+  METHOD protected void addLivedClient(io.github.snower.jaslock.SlockClient, boolean)
+  METHOD protected void addLivedLeaderClient(io.github.snower.jaslock.SlockClient)
+  METHOD protected void closePendingRequestCommands()
+  METHOD protected void removeLivedClient(io.github.snower.jaslock.SlockClient)
+  METHOD protected void removeLivedLeaderClient(io.github.snower.jaslock.SlockClient)
+  METHOD protected void removePendingRequestCommand(io.github.snower.jaslock.commands.Command)
+  METHOD protected void wakeupPendingRequestCommands(io.github.snower.jaslock.SlockClient)
+  METHOD public boolean enableAsyncCallback()
+  METHOD public boolean enableAsyncCallback(io.github.snower.jaslock.callback.CallbackExecutorManager)
+  METHOD public boolean enableAsyncCallback(io.github.snower.jaslock.callback.ExecutorOption)
+  METHOD public boolean ping() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.Event newEvent(byte[], int, int, boolean)
+  METHOD public io.github.snower.jaslock.Event newEvent(java.lang.String, int, int, boolean)
+  METHOD public io.github.snower.jaslock.GroupEvent newGroupEvent(byte[], long, long, int, int)
+  METHOD public io.github.snower.jaslock.GroupEvent newGroupEvent(java.lang.String, long, long, int, int)
+  METHOD public io.github.snower.jaslock.ISlockClient tryOpen()
+  METHOD public io.github.snower.jaslock.Lock newLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.Lock newLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(byte[], short, int, int, byte)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.MaxConcurrentFlow newMaxConcurrentFlow(java.lang.String, short, int, int, byte)
+  METHOD public io.github.snower.jaslock.PriorityLock newPriorityLock(byte[], byte, int, int)
+  METHOD public io.github.snower.jaslock.PriorityLock newPriorityLock(java.lang.String, byte, int, int)
+  METHOD public io.github.snower.jaslock.ReadWriteLock newReadWriteLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.ReadWriteLock newReadWriteLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.ReentrantLock newReentrantLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.ReentrantLock newReentrantLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.Semaphore newSemaphore(byte[], short, int, int)
+  METHOD public io.github.snower.jaslock.Semaphore newSemaphore(java.lang.String, short, int, int)
+  METHOD public io.github.snower.jaslock.SlockDatabase selectDatabase(byte)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(byte[], short, int, double, byte)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double)
+  METHOD public io.github.snower.jaslock.TokenBucketFlow newTokenBucketFlow(java.lang.String, short, int, double, byte)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(byte[], byte[], int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(byte[], int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.TreeLock newTreeLock(java.lang.String, java.lang.String, int, int)
+  METHOD public io.github.snower.jaslock.commands.CommandResult sendCommand(io.github.snower.jaslock.commands.Command) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void close()
+  METHOD public void open() throws io.github.snower.jaslock.exceptions.ClientUnconnectException
+  METHOD public void sendCommand(io.github.snower.jaslock.commands.Command, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void setDefaultExpriedFlag(short)
+  METHOD public void setDefaultTimeoutFlag(short)
+  METHOD public void writeCommand(io.github.snower.jaslock.commands.Command) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.TokenBucketFlow
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public TokenBucketFlow(io.github.snower.jaslock.SlockDatabase, byte[], short, int, double)
+  CTOR public TokenBucketFlow(io.github.snower.jaslock.SlockDatabase, byte[], short, int, double, byte)
+  CTOR public TokenBucketFlow(io.github.snower.jaslock.SlockDatabase, java.lang.String, short, int, double)
+  CTOR public TokenBucketFlow(io.github.snower.jaslock.SlockDatabase, java.lang.String, short, int, double, byte)
+  METHOD public byte getPriority()
+  METHOD public io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean> acquire(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<java.lang.Boolean>>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void setPriority(byte)
+
+TYPE public class io.github.snower.jaslock.TreeLock
+  SUPER io.github.snower.jaslock.AbstractExecution
+  CTOR public TreeLock(io.github.snower.jaslock.SlockDatabase, byte[], byte[], int, int)
+  CTOR public TreeLock(io.github.snower.jaslock.SlockDatabase, byte[], int, int)
+  CTOR public TreeLock(io.github.snower.jaslock.SlockDatabase, java.lang.String, int, int)
+  CTOR public TreeLock(io.github.snower.jaslock.SlockDatabase, java.lang.String, java.lang.String, int, int)
+  METHOD public boolean isRoot()
+  METHOD public byte[] getLockKey()
+  METHOD public byte[] getParentKey()
+  METHOD public io.github.snower.jaslock.TreeLock loadChild(byte[])
+  METHOD public io.github.snower.jaslock.TreeLock newChild()
+  METHOD public io.github.snower.jaslock.TreeLock$TreeLeafLock loadLeafLock(byte[])
+  METHOD public io.github.snower.jaslock.TreeLock$TreeLeafLock newLeafLock()
+  METHOD public java.lang.AutoCloseable with() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void wait(int) throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.TreeLock$TreeLeafLock
+  SUPER java.lang.Object
+  CTOR public TreeLeafLock(io.github.snower.jaslock.TreeLock, io.github.snower.jaslock.SlockDatabase, io.github.snower.jaslock.TreeLock, io.github.snower.jaslock.Lock)
+  METHOD public byte[] getLockId()
+  METHOD public byte[] getLockKey()
+  METHOD public void acquire() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void release() throws io.github.snower.jaslock.exceptions.SlockException
+
+TYPE public class io.github.snower.jaslock.callback.CallbackCommand
+  SUPER java.lang.Object
+  CTOR public CallbackCommand(io.github.snower.jaslock.commands.Command, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>)
+  METHOD public boolean isFinished()
+  METHOD public io.github.snower.jaslock.commands.Command getCommand()
+  METHOD public java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult> getCallback()
+  METHOD public java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult> getTimeoutCallback()
+  METHOD public long getTimeoutAt()
+  METHOD public void addTimeoutQueues(java.util.List<io.github.snower.jaslock.callback.CallbackCommand>)
+  METHOD public void close()
+  METHOD public void setTimeoutAt(long)
+
+TYPE public class io.github.snower.jaslock.callback.CallbackCommandResult
+  SUPER java.lang.Object
+  CTOR public CallbackCommandResult(io.github.snower.jaslock.commands.Command, io.github.snower.jaslock.commands.CommandResult, io.github.snower.jaslock.exceptions.SlockException)
+  METHOD public byte[] getLockDataAsBytes()
+  METHOD public io.github.snower.jaslock.commands.Command getCommand()
+  METHOD public io.github.snower.jaslock.commands.CommandResult getCommandResult()
+  METHOD public io.github.snower.jaslock.commands.CommandResult getResult() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public io.github.snower.jaslock.datas.LockResultData getLockData()
+  METHOD public io.github.snower.jaslock.exceptions.SlockException getException()
+  METHOD public java.lang.Long getLockDataAsLong()
+  METHOD public java.lang.String getLockDataAsString()
+
+TYPE public class io.github.snower.jaslock.callback.CallbackExecutorManager
+  SUPER java.lang.Object
+  CTOR public CallbackExecutorManager(io.github.snower.jaslock.callback.ExecutorOption)
+  CTOR public CallbackExecutorManager(java.util.concurrent.ExecutorService)
+  CTOR public CallbackExecutorManager(java.util.concurrent.ExecutorService, java.util.concurrent.ScheduledExecutorService)
+  CTOR public CallbackExecutorManager(java.util.concurrent.ScheduledExecutorService)
+  FIELD protected boolean isExternCallbackExecutor
+  FIELD protected boolean isExternTimeoutExecutor
+  FIELD protected boolean isRuning
+  FIELD protected final io.github.snower.jaslock.callback.ExecutorOption executorOption
+  FIELD protected java.util.concurrent.ConcurrentHashMap<java.lang.Long, java.util.List<io.github.snower.jaslock.callback.CallbackCommand>> timeoutQueues
+  FIELD protected java.util.concurrent.ExecutorService callbackExecutor
+  FIELD protected java.util.concurrent.ScheduledExecutorService timeoutScheduledExecutor
+  FIELD protected long currentTimeoutAt
+  METHOD public io.github.snower.jaslock.callback.CallbackCommand addCommand(io.github.snower.jaslock.commands.Command, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>, java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackCommandResult>) throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public void start()
+  METHOD public void stop()
+
+TYPE public class io.github.snower.jaslock.callback.CallbackFuture
+  TYPE-PARAMS <V> 
+  SUPER java.lang.Object
+  IMPLEMENTS java.util.concurrent.Future<V>
+  CTOR public CallbackFuture(java.util.function.Consumer<io.github.snower.jaslock.callback.CallbackFuture<V>>)
+  METHOD public V get() throws java.lang.InterruptedException, java.util.concurrent.ExecutionException
+  METHOD public V get(long, java.util.concurrent.TimeUnit) throws java.lang.InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException
+  METHOD public V getResult() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public boolean cancel(boolean)
+  METHOD public boolean isCancelled()
+  METHOD public boolean isDone()
+  METHOD public boolean setResult(V)
+  METHOD public boolean setResult(V, io.github.snower.jaslock.exceptions.SlockException)
+  METHOD public io.github.snower.jaslock.exceptions.SlockException getException()
+  METHOD public void addDoneRunnable(java.lang.Runnable)
+
+TYPE public class io.github.snower.jaslock.callback.ExecutorOption
+  SUPER java.lang.Object
+  CTOR public ExecutorOption(int, int, int, int, java.util.concurrent.TimeUnit)
+  FIELD public static final io.github.snower.jaslock.callback.ExecutorOption DefaultOption
+  METHOD public int getMaxCapacity()
+  METHOD public int getMaxWorkerCount()
+  METHOD public int getWorkerCount()
+  METHOD public int getWorkerKeepAliveTime()
+  METHOD public java.util.concurrent.TimeUnit getWorkerKeepAliveTimeUnit()
+
+TYPE public class io.github.snower.jaslock.commands.CapacityByteArrayOutputStream
+  SUPER java.io.ByteArrayOutputStream
+  CTOR public CapacityByteArrayOutputStream(int)
+  METHOD public byte[] toByteArray()
+
+TYPE public class io.github.snower.jaslock.commands.Command
+  SUPER java.lang.Object
+  IMPLEMENTS io.github.snower.jaslock.commands.ICommand
+  CTOR public Command(byte)
+  FIELD protected byte commandType
+  FIELD protected byte magic
+  FIELD protected byte version
+  FIELD protected byte[] requestId
+  FIELD protected int retryType
+  FIELD protected java.util.concurrent.Semaphore waiter
+  FIELD protected java.util.function.Consumer<io.github.snower.jaslock.commands.CommandResult> waiterCallback
+  FIELD protected static final java.util.Random random
+  FIELD public io.github.snower.jaslock.commands.CommandResult commandResult
+  FIELD public java.lang.Throwable exception
+  METHOD public boolean createWaiter()
+  METHOD public boolean hasExtraData()
+  METHOD public boolean waiteWaiter()
+  METHOD public boolean wakeupWaiter()
+  METHOD public byte getMagic()
+  METHOD public byte getVersion()
+  METHOD public byte[] dumpCommand()
+  METHOD public byte[] getExtraData() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public byte[] getRequestId()
+  METHOD public int getCommandType()
+  METHOD public int getRetryType()
+  METHOD public int setWaiterCallback(java.util.function.Consumer<io.github.snower.jaslock.commands.CommandResult>)
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+  METHOD public static byte[] genRequestId()
+  METHOD public void setRetryType(int)
+
+TYPE public class io.github.snower.jaslock.commands.CommandResult
+  SUPER java.lang.Object
+  IMPLEMENTS io.github.snower.jaslock.commands.ICommand
+  CTOR public CommandResult()
+  CTOR public CommandResult(byte)
+  FIELD protected byte commandType
+  FIELD protected byte magic
+  FIELD protected byte result
+  FIELD protected byte version
+  FIELD protected byte[] requestId
+  METHOD public boolean hasExtraData()
+  METHOD public byte getMagic()
+  METHOD public byte getResult()
+  METHOD public byte getVersion()
+  METHOD public byte[] dumpCommand()
+  METHOD public byte[] getRequestId()
+  METHOD public int getCommandType()
+  METHOD public io.github.snower.jaslock.commands.CommandResult loadCommandData(byte[])
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+
+TYPE public abstract interface io.github.snower.jaslock.commands.ICommand
+  FIELD public static final byte COMMAND_RESULT_ERROR
+  FIELD public static final byte COMMAND_RESULT_EXPRIED
+  FIELD public static final byte COMMAND_RESULT_LOCKED_ERROR
+  FIELD public static final byte COMMAND_RESULT_LOCK_ACK_WAITING
+  FIELD public static final byte COMMAND_RESULT_STATE_ERROR
+  FIELD public static final byte COMMAND_RESULT_SUCCED
+  FIELD public static final byte COMMAND_RESULT_TIMEOUT
+  FIELD public static final byte COMMAND_RESULT_UNKNOWN_COMMAND
+  FIELD public static final byte COMMAND_RESULT_UNKNOWN_DB
+  FIELD public static final byte COMMAND_RESULT_UNKNOWN_MAGIC
+  FIELD public static final byte COMMAND_RESULT_UNKNOWN_VERSION
+  FIELD public static final byte COMMAND_RESULT_UNLOCK_ERROR
+  FIELD public static final byte COMMAND_RESULT_UNOWN_ERROR
+  FIELD public static final byte COMMAND_TYPE_INIT
+  FIELD public static final byte COMMAND_TYPE_LOCK
+  FIELD public static final byte COMMAND_TYPE_PING
+  FIELD public static final byte COMMAND_TYPE_UNLOCK
+  FIELD public static final byte INIT_TYPE_FLAG_HAS_LEADER
+  FIELD public static final byte INIT_TYPE_FLAG_HA_CLIENT
+  FIELD public static final byte INIT_TYPE_FLAG_IS_LEADER
+  FIELD public static final byte INIT_TYPE_FLAG_IS_SHUTDOWN
+  FIELD public static final byte INIT_TYPE_FLAG_IS_TRANSPARENCY
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_APPEND
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_EXECUTE
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_INCR
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_PIPELINE
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_POP
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_PUSH
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_SET
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_SHIFT
+  FIELD public static final byte LOCK_DATA_COMMAND_TYPE_UNSET
+  FIELD public static final byte LOCK_DATA_FLAG_CONTAINS_PROPERTY
+  FIELD public static final byte LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST
+  FIELD public static final byte LOCK_DATA_FLAG_VALUE_TYPE_ARRAY
+  FIELD public static final byte LOCK_DATA_FLAG_VALUE_TYPE_KV
+  FIELD public static final byte LOCK_DATA_FLAG_VALUE_TYPE_NUMBER
+  FIELD public static final byte LOCK_DATA_STAGE_CURRENT
+  FIELD public static final byte LOCK_DATA_STAGE_EXPRIED
+  FIELD public static final byte LOCK_DATA_STAGE_TIMEOUT
+  FIELD public static final byte LOCK_DATA_STAGE_UNLOCK
+  FIELD public static final byte LOCK_FLAG_CONCURRENT_CHECK
+  FIELD public static final byte LOCK_FLAG_CONTAINS_DATA
+  FIELD public static final byte LOCK_FLAG_FROM_AOF
+  FIELD public static final byte LOCK_FLAG_LOCK_TREE_LOCK
+  FIELD public static final byte LOCK_FLAG_SHOW_WHEN_LOCKED
+  FIELD public static final byte LOCK_FLAG_UPDATE_WHEN_LOCKED
+  FIELD public static final byte MAGIC
+  FIELD public static final byte UNLOCK_FLAG_CANCEL_WAIT_LOCK_WHEN_UNLOCKED
+  FIELD public static final byte UNLOCK_FLAG_CONTAINS_DATA
+  FIELD public static final byte UNLOCK_FLAG_FROM_AOF
+  FIELD public static final byte UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT
+  FIELD public static final byte UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED
+  FIELD public static final byte UNLOCK_FLAG_UNLOCK_TREE_LOCK
+  FIELD public static final byte VERSION
+  FIELD public static final int EXPRIED_FLAG_AOF_TIME_OF_EXPRIED_PARCENT
+  FIELD public static final int EXPRIED_FLAG_KEEPLIVED
+  FIELD public static final int EXPRIED_FLAG_LOG_ERROR_WHEN_EXPRIED
+  FIELD public static final int EXPRIED_FLAG_MILLISECOND_TIME
+  FIELD public static final int EXPRIED_FLAG_MINUTE_TIME
+  FIELD public static final int EXPRIED_FLAG_PUSH_SUBSCRIBE
+  FIELD public static final int EXPRIED_FLAG_REVERSE_KEY_LOCK_WHEN_EXPRIED
+  FIELD public static final int EXPRIED_FLAG_UNLIMITED_AOF_TIME
+  FIELD public static final int EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+  FIELD public static final int EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+  FIELD public static final int EXPRIED_FLAG_ZEOR_AOF_TIME
+  FIELD public static final int TIMEOUT_FLAG_KEEPLIVED
+  FIELD public static final int TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED
+  FIELD public static final int TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK
+  FIELD public static final int TIMEOUT_FLAG_LOG_ERROR_WHEN_TIMEOUT
+  FIELD public static final int TIMEOUT_FLAG_MILLISECOND_TIME
+  FIELD public static final int TIMEOUT_FLAG_MINUTE_TIME
+  FIELD public static final int TIMEOUT_FLAG_PUSH_SUBSCRIBE
+  FIELD public static final int TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+  FIELD public static final int TIMEOUT_FLAG_REQUIRE_ACKED
+  FIELD public static final int TIMEOUT_FLAG_REVERSE_KEY_LOCK_WHEN_TIMEOUT
+  FIELD public static final int TIMEOUT_FLAG_TIMEOUT_WHEN_CONTAINS_DATA
+  FIELD public static final int TIMEOUT_FLAG_UNRENEW_EXPRIED_TIME_WHEN_TIMEOUT
+  FIELD public static final int TIMEOUT_FLAG_UPDATE_NO_RESET_TIMEOUT_CHECKED_COUNT
+  METHOD public abstract boolean hasExtraData()
+  METHOD public abstract byte[] dumpCommand()
+  METHOD public abstract byte[] getRequestId()
+  METHOD public abstract int getCommandType()
+  METHOD public abstract io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+
+TYPE public class io.github.snower.jaslock.commands.InitCommand
+  SUPER io.github.snower.jaslock.commands.Command
+  CTOR public InitCommand(byte[])
+  FIELD protected byte[] clientId
+  METHOD public byte[] dumpCommand()
+  METHOD public byte[] getClientId()
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+  METHOD public static byte[] genClientId()
+
+TYPE public class io.github.snower.jaslock.commands.InitCommandResult
+  SUPER io.github.snower.jaslock.commands.CommandResult
+  CTOR public InitCommandResult()
+  FIELD protected byte initType
+  METHOD public byte getInitType()
+  METHOD public byte[] dumpCommand()
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+
+TYPE public class io.github.snower.jaslock.commands.LockCommand
+  SUPER io.github.snower.jaslock.commands.Command
+  CTOR public LockCommand(byte, byte, byte, byte[], byte[], int, int, short, byte)
+  CTOR public LockCommand(byte, byte, byte, byte[], byte[], int, int, short, byte, io.github.snower.jaslock.datas.LockData)
+  CTOR public LockCommand(byte, byte, byte[], byte[], int, int)
+  CTOR public LockCommand(byte, byte, byte[], byte[], int, int, io.github.snower.jaslock.datas.LockData)
+  FIELD protected byte dbId
+  FIELD protected byte flag
+  FIELD protected byte rCount
+  FIELD protected byte[] lockId
+  FIELD protected byte[] lockKey
+  FIELD protected int expried
+  FIELD protected int timeout
+  FIELD protected io.github.snower.jaslock.datas.LockData lockData
+  FIELD protected short count
+  METHOD public boolean hasExtraData()
+  METHOD public boolean waiteWaiter()
+  METHOD public byte getDbId()
+  METHOD public byte getFlag()
+  METHOD public byte getrCount()
+  METHOD public byte[] dumpCommand()
+  METHOD public byte[] getExtraData() throws io.github.snower.jaslock.exceptions.SlockException
+  METHOD public byte[] getLockId()
+  METHOD public byte[] getLockKey()
+  METHOD public int getExpried()
+  METHOD public int getTimeout()
+  METHOD public int setWaiterCallback(java.util.function.Consumer<io.github.snower.jaslock.commands.CommandResult>)
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+  METHOD public io.github.snower.jaslock.datas.LockData getLockData()
+  METHOD public short getCount()
+  METHOD public static byte[] genLockId()
+
+TYPE public class io.github.snower.jaslock.commands.LockCommandResult
+  SUPER io.github.snower.jaslock.commands.CommandResult
+  CTOR public LockCommandResult()
+  FIELD protected byte dbId
+  FIELD protected byte flag
+  FIELD protected byte lrCount
+  FIELD protected byte rCount
+  FIELD protected byte[] lockId
+  FIELD protected byte[] lockKey
+  FIELD protected io.github.snower.jaslock.datas.LockResultData lockResultData
+  FIELD protected short count
+  FIELD protected short lCount
+  METHOD public boolean hasExtraData()
+  METHOD public byte getDbId()
+  METHOD public byte getFlag()
+  METHOD public byte getLrCount()
+  METHOD public byte getrCount()
+  METHOD public byte[] dumpCommand()
+  METHOD public byte[] getLockId()
+  METHOD public byte[] getLockKey()
+  METHOD public io.github.snower.jaslock.commands.CommandResult loadCommandData(byte[])
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+  METHOD public io.github.snower.jaslock.datas.LockResultData getLockResultData()
+  METHOD public short getCount()
+  METHOD public short getlCount()
+
+TYPE public class io.github.snower.jaslock.commands.PingCommand
+  SUPER io.github.snower.jaslock.commands.Command
+  CTOR public PingCommand()
+  METHOD public byte[] dumpCommand()
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+
+TYPE public class io.github.snower.jaslock.commands.PingCommandResult
+  SUPER io.github.snower.jaslock.commands.CommandResult
+  CTOR public PingCommandResult()
+  METHOD public byte[] dumpCommand()
+  METHOD public io.github.snower.jaslock.commands.ICommand parseCommand(byte[])
+
+TYPE public class io.github.snower.jaslock.datas.LockAppendData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockAppendData(byte[])
+  CTOR public LockAppendData(byte[], byte)
+  CTOR public LockAppendData(java.lang.String)
+  CTOR public LockAppendData(java.lang.String, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockData
+  SUPER java.lang.Object
+  CTOR public LockData(byte, byte, byte, byte[])
+  FIELD protected byte commandFlag
+  FIELD protected byte commandStage
+  FIELD protected byte commandType
+  FIELD protected byte[] value
+  METHOD public byte[] dumpData() throws io.github.snower.jaslock.exceptions.LockDataException
+
+TYPE public class io.github.snower.jaslock.datas.LockExecuteData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockExecuteData(byte, io.github.snower.jaslock.commands.LockCommand)
+  CTOR public LockExecuteData(byte, io.github.snower.jaslock.commands.LockCommand, byte)
+  CTOR public LockExecuteData(io.github.snower.jaslock.commands.LockCommand)
+  CTOR public LockExecuteData(io.github.snower.jaslock.commands.LockCommand, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockIncrData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockIncrData()
+  CTOR public LockIncrData(byte)
+  CTOR public LockIncrData(long)
+  CTOR public LockIncrData(long, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockPipelineData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockPipelineData(io.github.snower.jaslock.datas.LockData[])
+  CTOR public LockPipelineData(io.github.snower.jaslock.datas.LockData[], byte)
+  METHOD public byte[] dumpData() throws io.github.snower.jaslock.exceptions.LockDataException
+
+TYPE public class io.github.snower.jaslock.datas.LockPopData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockPopData(int)
+  CTOR public LockPopData(int, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockPushData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockPushData(byte[])
+  CTOR public LockPushData(byte[], byte)
+  CTOR public LockPushData(java.lang.String)
+  CTOR public LockPushData(java.lang.String, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockResultData
+  SUPER java.lang.Object
+  CTOR public LockResultData(byte[])
+  FIELD protected byte[] data
+  METHOD public byte[] getDataAsBytes()
+  METHOD public byte[] getRawData()
+  METHOD public java.lang.String getDataAsString()
+  METHOD public java.util.List<byte[]> getRawDataAsList()
+  METHOD public java.util.List<java.lang.String> getRawDataAsStringList()
+  METHOD public java.util.Map<java.lang.String, byte[]> getRawDataAsMap()
+  METHOD public java.util.Map<java.lang.String, java.lang.String> getRawDataAsStringMap()
+  METHOD public long getDataAsLong()
+
+TYPE public class io.github.snower.jaslock.datas.LockSetData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockSetData(byte[])
+  CTOR public LockSetData(byte[], byte)
+  CTOR public LockSetData(java.lang.String)
+  CTOR public LockSetData(java.lang.String, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockShiftData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockShiftData(int)
+  CTOR public LockShiftData(int, byte)
+
+TYPE public class io.github.snower.jaslock.datas.LockUnsetData
+  SUPER io.github.snower.jaslock.datas.LockData
+  CTOR public LockUnsetData()
+  CTOR public LockUnsetData(byte)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientAsyncCallbackDisabledException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientAsyncCallbackDisabledException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientAsyncCallbackStopedException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientAsyncCallbackStopedException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientAsyncCallbackWaitedException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientAsyncCallbackWaitedException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientClosedException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientClosedException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientCommandException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientCommandException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientCommandTimeoutException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientCommandTimeoutException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientOutputStreamException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientOutputStreamException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.ClientUnconnectException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public ClientUnconnectException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.EventWaitTimeoutException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public EventWaitTimeoutException()
+
+TYPE public class io.github.snower.jaslock.exceptions.LockDataException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public LockDataException(java.lang.String)
+
+TYPE public class io.github.snower.jaslock.exceptions.LockException
+  SUPER io.github.snower.jaslock.exceptions.SlockException
+  CTOR public LockException(io.github.snower.jaslock.commands.Command, io.github.snower.jaslock.commands.CommandResult)
+  METHOD protected static java.lang.String getErrMessage(io.github.snower.jaslock.commands.CommandResult)
+  METHOD public byte[] getLockDataAsBytes()
+  METHOD public io.github.snower.jaslock.commands.Command getCommand()
+  METHOD public io.github.snower.jaslock.commands.CommandResult getCommandResult()
+  METHOD public io.github.snower.jaslock.datas.LockResultData getLockData()
+  METHOD public java.lang.Long getLockDataAsLong()
+  METHOD public java.lang.String getLockDataAsString()
+  METHOD public java.util.List<byte[]> getLockDataAsList()
+  METHOD public java.util.List<java.lang.String> getLockDataAsStringList()
+  METHOD public java.util.Map<java.lang.String, byte[]> getLockDataAsMap()
+  METHOD public java.util.Map<java.lang.String, java.lang.String> getLockDataAsStringMap()
+
+TYPE public class io.github.snower.jaslock.exceptions.LockLockedException
+  SUPER io.github.snower.jaslock.exceptions.LockException
+  CTOR public LockLockedException(io.github.snower.jaslock.commands.Command, io.github.snower.jaslock.commands.CommandResult)
+
+TYPE public class io.github.snower.jaslock.exceptions.LockNotOwnException
+  SUPER io.github.snower.jaslock.exceptions.LockException
+  CTOR public LockNotOwnException(io.github.snower.jaslock.commands.Command, io.github.snower.jaslock.commands.CommandResult)
+
+TYPE public class io.github.snower.jaslock.exceptions.LockTimeoutException
+  SUPER io.github.snower.jaslock.exceptions.LockException
+  CTOR public LockTimeoutException(io.github.snower.jaslock.commands.Command, io.github.snower.jaslock.commands.CommandResult)
+
+TYPE public class io.github.snower.jaslock.exceptions.LockUnlockedException
+  SUPER io.github.snower.jaslock.exceptions.LockException
+  CTOR public LockUnlockedException(io.github.snower.jaslock.commands.Command, io.github.snower.jaslock.commands.CommandResult)
+
+TYPE public class io.github.snower.jaslock.exceptions.SlockException
+  SUPER java.lang.Exception
+  CTOR public SlockException()
+  CTOR public SlockException(java.lang.String)
+

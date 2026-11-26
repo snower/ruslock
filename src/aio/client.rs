@@ -7,6 +7,7 @@ use crate::aio::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
 };
+use crate::aio::raw::{RawCommand, RawSendFailure};
 use crate::error::Result;
 use crate::options::ClientOptions;
 use crate::protocol::command::{Command, PingCommand};
@@ -21,7 +22,7 @@ pub struct Client {
 
 #[derive(Debug)]
 pub(crate) struct ClientInner {
-    pub(crate) connection: Connection,
+    pub(crate) connection: Arc<Connection>,
 }
 
 impl Client {
@@ -32,7 +33,7 @@ impl Client {
     pub fn with_options<A: ToString>(address: A, options: ClientOptions) -> Self {
         Self {
             inner: Arc::new(ClientInner {
-                connection: Connection::new(address.to_string(), options),
+                connection: Arc::new(Connection::new(address.to_string(), options)),
             }),
         }
     }
@@ -45,6 +46,16 @@ impl Client {
 
     pub async fn open(&self) -> Result<()> {
         self.inner.connection.open().await
+    }
+
+    /// Opens the single-node client without turning the first failure into an
+    /// error. Returns `Ok(true)` when the Init handshake completed during this
+    /// call, and `Ok(false)` when it failed but a managed background reconnect
+    /// was started with the same client identity. [`Client::close`] cancels
+    /// that reconnect. With `ClientOptions::auto_reconnect == false` the first
+    /// error is returned, matching [`Client::open`].
+    pub async fn try_open(&self) -> Result<bool> {
+        self.inner.connection.try_open().await
     }
 
     pub async fn close(&self) {
@@ -161,12 +172,65 @@ impl Client {
         self.inner.connection.pending_len().await
     }
 
+    /// Sends an already-validated raw command and returns the exact response
+    /// frame for the Java `CommandResult` decoders.
+    ///
+    /// Raw responses are matched by request id like typed commands, but are not
+    /// decoded or normalized. Lock response extra data keeps its wire length
+    /// prefix. By default the response wait uses the frame's timeout plus the
+    /// client command timeout grace; a command built with
+    /// [`RawCommand::with_exact_timeout`] is waited for exactly its timeout
+    /// instead, so an already-total caller deadline gets no second grace. The
+    /// frame write is not wrapped in that wait deadline.
+    pub async fn send_raw(&self, command: RawCommand) -> Result<Vec<u8>> {
+        self.send_raw_classified(command)
+            .await
+            .map_err(RawSendFailure::into_error)
+    }
+
+    /// Writes an already-validated raw command without waiting for, or
+    /// registering a pending request for, any response.
+    ///
+    /// This is the Java `writeCommand` path: it returns after the socket write
+    /// and flush, and `pending_len()` stays unchanged.
+    pub async fn write_raw(&self, command: RawCommand) -> Result<()> {
+        self.write_raw_classified(command)
+            .await
+            .map_err(RawSendFailure::into_error)
+    }
+
+    /// Replset-facing raw send that distinguishes "definitely not sent" from
+    /// "write outcome unknown"; only the former is safe to replay.
+    pub(crate) async fn send_raw_classified(
+        &self,
+        command: RawCommand,
+    ) -> std::result::Result<Vec<u8>, RawSendFailure> {
+        self.inner.connection.send_raw_classified(command).await
+    }
+
+    /// Replset-facing write-only send with the same replay-safety distinction.
+    pub(crate) async fn write_raw_classified(
+        &self,
+        command: RawCommand,
+    ) -> std::result::Result<(), RawSendFailure> {
+        self.inner.connection.write_raw_classified(command).await
+    }
+
     pub(crate) fn init_type(&self) -> u8 {
         self.inner.connection.init_type()
     }
 
     pub(crate) async fn send_command(&self, command: Command) -> Result<CommandResult> {
         self.inner.connection.send_command(command).await
+    }
+
+    /// Replset-facing typed send with the same replay-safety distinction as the
+    /// raw path; only `NotSent` is safe to reroute.
+    pub(crate) async fn send_command_classified(
+        &self,
+        command: Command,
+    ) -> std::result::Result<CommandResult, RawSendFailure> {
+        self.inner.connection.send_command_classified(command).await
     }
 }
 

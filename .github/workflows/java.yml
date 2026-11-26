@@ -1,0 +1,118 @@
+name: Java 8 wrapper
+
+on:
+  push:
+    paths:
+      - ".github/workflows/java.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "tests/**"
+      - "wrapper/java/**"
+  pull_request:
+    paths:
+      - ".github/workflows/java.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "tests/**"
+      - "wrapper/java/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: java-wrapper-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jdk8-consumer:
+    name: JDK 8 wrapper and isolated consumer
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      slock:
+        # Pin both the release tag and the manifest digest resolved from it.
+        # wrapper/java/tools/baseline.properties records the baseline service as
+        # v2.1.14 / 1669b53d9334454d4d8f8c25cf2311a269e0dbbe. The digest below is
+        # exactly what the v2.1.14 tag pointed to when this job was added; never
+        # replace it with an implicit "latest".
+        image: sujin190/slock:v2.1.14@sha256:41d7bfb8417f69c403a7c6eee56720221d8a6c7f2509b610440b63efd8dea9c0
+        ports:
+          - 5658:5658
+        options: >-
+          --health-cmd "slock-cli ping"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 5s
+
+    env:
+      SLOCK_HOST: 127.0.0.1
+      SLOCK_PORT: 5658
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wrapper/java/native
+
+      - name: Verify pinned Jaslock baseline files
+        env:
+          JASLOCK_COMMIT: 85c2d2bc337e701d560c17085c5fb3ae3277dd29
+        run: |
+          git clone --quiet --no-tags https://github.com/snower/jaslock.git "$RUNNER_TEMP/jaslock"
+          git -C "$RUNNER_TEMP/jaslock" checkout --quiet "$JASLOCK_COMMIT"
+          JASLOCK_SRC="$RUNNER_TEMP/jaslock" bash wrapper/java/tools/verify-baseline.sh
+
+      - name: Build and test wrapper on JDK 8
+        run: |
+          java -version
+          mvn -version
+          mvn -B -f wrapper/java/pom.xml clean verify
+
+      - name: Check class major and API signatures
+        run: |
+          set -euo pipefail
+          JAR="$PWD/wrapper/java/target/ruslock-1.1.5.jar"
+          test -f "$JAR"
+          echo "JAR_SHA256=$(sha256sum "$JAR" | awk '{print $1}')"
+          bash wrapper/java/tools/check-class-major.sh "$JAR" 52
+          bash wrapper/java/tools/api-signatures.sh \
+            "$JAR" "$RUNNER_TEMP/candidate-api-signatures.txt" "github-actions-jdk8"
+          bash wrapper/java/tools/compare-api-signatures.sh \
+            wrapper/java/tools/baseline-api-signatures.txt \
+            "$RUNNER_TEMP/candidate-api-signatures.txt"
+
+      - name: Verify dependency-only consumer in an isolated Maven repository
+        run: |
+          set -euo pipefail
+          bash wrapper/java/tools/verify-consumer.sh \
+            --jar "$PWD/wrapper/java/target/ruslock-1.1.5.jar" \
+            --workdir "$RUNNER_TEMP/ruslock-consumer"
+
+      - name: Upload reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-wrapper-reports
+          if-no-files-found: warn
+          path: |
+            wrapper/java/target/surefire-reports/**
+            ${{ runner.temp }}/candidate-api-signatures.txt
+            ${{ runner.temp }}/ruslock-consumer/*.log

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.github.snower.consumer</groupId>
+  <artifactId>ruslock-consumer-check</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>RusLock isolated consumer check</name>
+  <description>
+    Standalone consumer fixture. It declares only the packaged
+    io.github.snower:ruslock dependency and performs a real lock round trip
+    against Slock. wrapper/java/tools/verify-consumer.sh copies this project to
+    an isolated work directory and resolves the artifact from a fresh Maven
+    local repository.
+  </description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <ruslock.version>1.1.5</ruslock.version>
+
+    <!-- Overridden by verify-consumer.sh on the Maven command line. -->
+    <ruslock.host>127.0.0.1</ruslock.host>
+    <ruslock.port>5658</ruslock.port>
+    <ruslock.expected.jar>${project.basedir}/target/missing-ruslock.jar</ruslock.expected.jar>
+    <ruslock.forbidden.root>${project.basedir}</ruslock.forbidden.root>
+    <ruslock.jvm.tmpdir>${project.build.directory}/jvm-tmp</ruslock.jvm.tmpdir>
+    <ruslock.expect.missing.native>false</ruslock.expect.missing.native>
+  </properties>
+
+  <dependencies>
+    <!-- Deliberately the only dependency: no systemPath, no source tree, no JUnit. -->
+    <dependency>
+      <groupId>io.github.snower</groupId>
+      <artifactId>ruslock</artifactId>
+      <version>${ruslock.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <source>${maven.compiler.source}</source>
+          <target>${maven.compiler.target}</target>
+          <encoding>${project.build.sourceEncoding}</encoding>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>run-consumer-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <!-- Fork a fresh JVM so no Maven process state leaks into the check. -->
+              <executable>${java.home}/bin/java</executable>
+              <workingDirectory>${project.build.directory}</workingDirectory>
+              <arguments>
+                <!-- Prove the library is loaded from the packaged resource, not a search path. -->
+                <argument>-Djava.library.path=</argument>
+                <argument>-Djava.io.tmpdir=${ruslock.jvm.tmpdir}</argument>
+                <argument>-Druslock.expected.jar=${ruslock.expected.jar}</argument>
+                <argument>-Druslock.forbidden.root=${ruslock.forbidden.root}</argument>
+                <argument>-Druslock.expect.missing.native=${ruslock.expect.missing.native}</argument>
+                <argument>-classpath</argument>
+                <classpath/>
+                <argument>io.github.snower.consumer.ConsumerCheck</argument>
+                <argument>${ruslock.host}</argument>
+                <argument>${ruslock.port}</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

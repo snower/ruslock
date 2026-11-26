@@ -5,6 +5,7 @@ use crate::aio::primitives::{
     Event, GroupEvent, Lock, MaxConcurrentFlow, PriorityLock, ReadWriteLock, ReentrantLock,
     Semaphore, TokenBucketFlow, TreeLock,
 };
+use crate::aio::raw::RawCommand;
 use crate::aio::replset::{IntoNodeList, ReplsetClient};
 use crate::error::Result;
 use crate::options::ClientOptions;
@@ -39,6 +40,18 @@ impl ClientHandle {
         <Self as ClientApi>::open(self).await
     }
 
+    /// Opens without turning the first refusal into an error.
+    ///
+    /// Delegates to [`Client::try_open`] for a single node and to
+    /// [`ReplsetClient::try_open`] for a replica set, so bindings can use one
+    /// lifecycle entry point for both shapes.
+    pub async fn try_open(&self) -> Result<bool> {
+        match self {
+            Self::Single(client) => client.try_open().await,
+            Self::Replset(client) => client.try_open().await,
+        }
+    }
+
     pub async fn close(&self) {
         <Self as ClientApi>::close(self).await;
     }
@@ -49,6 +62,54 @@ impl ClientHandle {
 
     pub fn select_database(&self, db_id: u8) -> Database {
         <Self as ClientApi>::select_database(self, db_id)
+    }
+
+    /// The routed member index. A single node always routes to index `0`.
+    pub fn active_index(&self) -> Option<usize> {
+        match self {
+            Self::Single(_) => Some(0),
+            Self::Replset(client) => client.active_index(),
+        }
+    }
+
+    /// Init flags of the routed member, or `0` when no member is selected.
+    pub fn active_init_type(&self) -> u8 {
+        match self {
+            Self::Single(client) => client.init_type(),
+            Self::Replset(client) => client.active_init_type(),
+        }
+    }
+
+    /// Whether the routed member advertised `INIT_TYPE_FLAG_IS_LEADER`.
+    pub fn is_leader(&self) -> bool {
+        (self.active_init_type() & crate::protocol::constants::INIT_TYPE_FLAG_IS_LEADER) != 0
+    }
+
+    /// Opts a replica-set handle into conservative typed replay safety.
+    ///
+    /// This is a no-op for a single-node handle. See
+    /// [`ReplsetClient::with_conservative_replay`] for the default policy.
+    pub fn with_conservative_replay(self) -> Self {
+        match self {
+            Self::Single(client) => Self::Single(client),
+            Self::Replset(client) => Self::Replset(client.with_conservative_replay()),
+        }
+    }
+
+    /// Sends an already-validated raw command through the routed member.
+    pub async fn send_raw(&self, command: RawCommand) -> Result<Vec<u8>> {
+        match self {
+            Self::Single(client) => client.send_raw(command).await,
+            Self::Replset(client) => client.send_raw(command).await,
+        }
+    }
+
+    /// Writes an already-validated raw command without waiting for a response.
+    pub async fn write_raw(&self, command: RawCommand) -> Result<()> {
+        match self {
+            Self::Single(client) => client.write_raw(command).await,
+            Self::Replset(client) => client.write_raw(command).await,
+        }
     }
 
     pub fn lock<K: AsRef<[u8]>>(&self, key: K, timeout: u16, expired: u16) -> Lock {

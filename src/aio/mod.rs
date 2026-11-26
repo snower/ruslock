@@ -4,6 +4,7 @@ mod connection;
 mod database;
 mod handle;
 mod primitives;
+pub mod raw;
 mod replset;
 
 pub use api::ClientApi;
